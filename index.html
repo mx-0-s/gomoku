@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#17251f">
+    <title>五子棋 · 对弈</title>
+    <link rel="stylesheet" href="css/gomoku.css">
+</head>
+
+<body>
+    <main class="app-shell">
+        <header class="topbar">
+            <a class="wordmark" href="gomoku.html" aria-label="五子棋主页"><span class="brand-mark">五</span><span>GOMOKU<span class="wordmark-period">.</span></span></a>
+            <div class="topbar-note"><span class="live-dot"></span>单机对弈 <span class="note-divider">/</span> 本地运行</div>
+        </header>
+
+        <section class="game-layout" aria-label="五子棋对局">
+            <div class="play-column">
+                <div class="game-heading">
+                    <div>
+                        <p class="eyebrow">CLASSIC · 15 × 15</p>
+                        <h1>五子棋</h1>
+                    </div>
+                    <div class="turn-indicator" id="turnIndicator"><span class="stone stone-black" id="currentPlayer"></span><span id="playerText">黑方 · 你</span></div>
+                </div>
+
+                <div class="board-frame">
+                    <canvas id="gameCanvas" aria-label="五子棋棋盘，点击交叉点落子"></canvas>
+                </div>
+                <div class="status-line" id="gameStatus" aria-live="polite">
+                    <span class="status-mark" id="statusMark"></span>
+                    <p id="statusText">黑方先行</p>
+                    <span class="status-meta" id="searchStatus">READY</span>
+                </div>
+            </div>
+
+            <aside class="control-column" aria-label="对局控制">
+                <section class="control-section score-section">
+                    <div class="section-heading"><span class="section-index">01</span><h2>对局</h2></div>
+                    <div class="stats-grid">
+                        <div class="stat"><span class="stat-label">步数</span><strong id="moveCount">0</strong></div>
+                        <div class="stat"><span class="stat-label">用时</span><strong id="gameTime">00:00</strong></div>
+                    </div>
+                    <div class="player-row"><span class="player-label"><span class="stone stone-black"></span>黑方</span><span class="player-value">你</span></div>
+                    <div class="player-row"><span class="player-label"><span class="stone stone-white"></span>白方</span><span class="player-value">AI 对手</span></div>
+                </section>
+
+                <section class="control-section ai-section">
+                    <div class="section-heading"><span class="section-index">02</span><h2>AI 算法</h2></div>
+                    <fieldset class="mode-switch" aria-label="选择 AI 算法">
+                        <legend class="visually-hidden">AI 算法模式</legend>
+                        <label class="mode-option"><input type="radio" name="ai-mode" value="evaluate" checked><span>评估函数</span></label>
+                        <label class="mode-option"><input type="radio" name="ai-mode" value="mcts"><span>蒙特卡洛树搜索</span></label>
+                    </fieldset>
+                    <p class="mode-description" id="modeDescription">全盘空位并行评分，再以 Alpha-Beta 极大极小搜索优化。</p>
+                    <div class="parallel-indicator"><span class="parallel-icon" aria-hidden="true">⇉</span><span id="parallelText">并行引擎启动中</span></div>
+                </section>
+
+                <section class="control-section actions-section">
+                    <div class="section-heading"><span class="section-index">03</span><h2>操作</h2></div>
+                    <button class="action-button action-primary" id="restartBtn" type="button"><span class="button-symbol" aria-hidden="true">↻</span>重新开始</button>
+                    <button class="action-button action-secondary" id="undoBtn" type="button"><span class="button-symbol" aria-hidden="true">↶</span>悔棋</button>
+                </section>
+
+                <p class="aside-footnote">THINK AHEAD. PLAY WITH INTENT.</p>
+            </aside>
+        </section>
+    </main>
+
+    <div class="modal-backdrop is-hidden" id="winModal" role="dialog" aria-modal="true" aria-labelledby="winnerText">
+        <div class="result-dialog">
+            <span class="result-kicker">GAME COMPLETE</span>
+            <span class="result-stone" id="resultStone" aria-hidden="true"></span>
+            <h2 id="winnerText">黑棋获胜</h2>
+            <p id="winMessage">精彩的一局。</p>
+            <button class="action-button action-primary" id="newGameBtn" type="button">开始新对局 <span class="button-symbol" aria-hidden="true">→</span></button>
+        </div>
+    </div>
+
+    <script src="js/gomoku-engine.js"></script>
+    <script src="js/gomoku-app.js"></script>
+</body>
+
+</html>

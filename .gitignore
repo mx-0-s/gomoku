@@ -1,0 +1,7 @@
+# Local launcher is intentionally not part of the archived project.
+/start.bat
+
+# Operating-system files
+Thumbs.db
+.DS_Store
+desktop.ini
