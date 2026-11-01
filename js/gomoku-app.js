@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const { SIZE, createBoard, cloneBoard, checkWin, listEmptyPoints, listCandidateMoves, findImmediateMove, chooseEvaluationMove, runMcts } = GomokuEngine;
+    const { SIZE, createBoard, cloneBoard, checkWin, listEmptyPoints, findImmediateMove, findVcfWin, chooseEvaluationMove, runMcts } = GomokuEngine;
     const HUMAN = 1;
     const AI = 2;
     const MAX_WORKERS = 8;
@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastMove = null;
     let winningLine = null;
     let elapsedSeconds = 0;
+    let startedAt = Date.now();
     let timerId = null;
     let analysisId = 0;
     let boardMetrics = { size: 0, margin: 0, cell: 0 };
@@ -155,12 +156,21 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('input[name="ai-mode"]').forEach(input => { input.disabled = thinking; });
     }
 
+    // Derived from a start timestamp instead of an accumulating counter, so a throttled
+    // background tab cannot make the clock drift behind real time.
+    function syncElapsed() {
+        elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+        gameTime.textContent = formatTime(elapsedSeconds);
+    }
+
     function startTimer() {
         clearInterval(timerId);
+        startedAt = Date.now();
+        elapsedSeconds = 0;
+        syncElapsed();
         timerId = setInterval(() => {
             if (!gameActive) return;
-            elapsedSeconds++;
-            gameTime.textContent = formatTime(elapsedSeconds);
+            syncElapsed();
         }, 1000);
     }
 
@@ -268,6 +278,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (win) return win;
         const block = findImmediateMove(snapshot, HUMAN);
         if (block) return block;
+        // A continuous-four win is a proof, so it is played without asking the search.
+        const vcf = findVcfWin(snapshot, AI);
+        if (vcf) return vcf.move;
         if (mode === 'evaluate') {
             const candidates = listEmptyPoints(snapshot);
             if (typeof Worker === 'undefined') return fallbackMove(snapshot, mode);
@@ -312,6 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (winningLine) {
             gameActive = false;
             clearInterval(timerId);
+            syncElapsed();
             statusText.textContent = player === HUMAN ? '黑棋获胜' : '白棋获胜';
             winnerText.textContent = player === HUMAN ? '黑棋获胜' : '白棋获胜';
             winMessage.textContent = player === HUMAN ? '你赢下了这场对局。' : 'AI 赢下了这场对局。再试一局。';
@@ -320,6 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (history.length === SIZE * SIZE) {
             gameActive = false;
             clearInterval(timerId);
+            syncElapsed();
             statusText.textContent = '棋盘已满 · 平局';
             resultStone.classList.remove('is-white');
             winModal.classList.remove('is-hidden');
@@ -383,6 +398,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('restartBtn').addEventListener('click', resetGame);
     document.getElementById('newGameBtn').addEventListener('click', resetGame);
     undoButton.addEventListener('click', undoMove);
+    document.querySelector('.wordmark').addEventListener('click', event => {
+        if (gameActive && history.length > 0 && !window.confirm('当前对局尚未结束，确定要离开吗？')) {
+            event.preventDefault();
+        }
+    });
     document.querySelectorAll('input[name="ai-mode"]').forEach(input => {
         input.addEventListener('change', event => {
             mode = event.target.value;
