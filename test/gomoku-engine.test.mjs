@@ -65,8 +65,8 @@ test('MCTS returns legal moves and finite root statistics', () => {
 });
 
 test('search depth follows the requested move-count bands', () => {
-    assert.equal(engine.searchDepthForMoves(4), 4);
-    assert.equal(engine.searchDepthForMoves(5), 8);
+    assert.equal(engine.searchDepthForMoves(0), 8);
+    assert.equal(engine.searchDepthForMoves(4), 8);
     assert.equal(engine.searchDepthForMoves(20), 8);
     assert.equal(engine.searchDepthForMoves(21), 10);
 });

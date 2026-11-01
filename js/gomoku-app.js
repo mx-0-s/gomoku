@@ -235,7 +235,13 @@ document.addEventListener('DOMContentLoaded', () => {
         parallelText.textContent = `Alpha-Beta · 深度 ${depth} · ${searchJobs.length} 路`;
         const searchBatches = await Promise.all(searchJobs.map(workerRequest));
         if (version !== analysisId) return null;
-        return searchBatches.flatMap(batch => batch.results).sort((a, b) => b.score - a.score)[0] || rootMoves[0];
+        const ranked = searchBatches.flatMap(batch => batch.results).sort((a, b) => b.score - a.score);
+        if (!ranked.length) return rootMoves[0];
+        // Equal scores are equally good as far as the evaluation is concerned, so one of them
+        // is picked at random. Without this the AI replays the same game down to the move and
+        // a single losing line repeats forever.
+        const bestMoves = ranked.filter(result => result.score === ranked[0].score);
+        return bestMoves[Math.floor(Math.random() * bestMoves.length)];
     }
 
     async function mctsInParallel(snapshot, version) {

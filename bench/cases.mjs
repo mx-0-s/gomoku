@@ -329,6 +329,18 @@ export const cases = [
                 ? true
                 : 'an open three was misread as a four threat';
         }
+    },
+    {
+        name: 'the opening reply blocks a developing two instead of building its own shape',
+        check(engine) {
+            // Black has (7,7)+(7,6); playing (7,5) or (7,8) is what turns it into an open
+            // three. Four plies of search could not see that and developed instead.
+            const current = board(engine, [[7, 7, 1], [6, 7, 2], [7, 6, 1]]);
+            const best = pipelineMove(engine, current, 2, 8);
+            return best.row === 7 && (best.col === 5 || best.col === 8)
+                ? true
+                : `expected a block on row 7, got (${best.row},${best.col})`;
+        }
     }
 ];
 

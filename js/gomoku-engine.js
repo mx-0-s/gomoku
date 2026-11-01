@@ -416,8 +416,11 @@
         return resolveThreats(board, sideToMove, ply, QUIESCE_PLIES, { nodes: 0 });
     }
 
+    // The opening used to get only four plies, which is one ply short of seeing that letting
+    // the opponent build an open three loses: the AI developed while the opponent made a
+    // three and was on the defensive for the rest of the game. Eight plies from the start
+    // fixes that at a cost of a few hundred milliseconds per early move.
     function searchDepthForMoves(moveCount) {
-        if (moveCount <= 4) return 4;
         if (moveCount <= 20) return 8;
         return 10;
     }

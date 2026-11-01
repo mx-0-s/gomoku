@@ -66,9 +66,12 @@ Search depth is selected from the current total move count; the root move counts
 
 | 总步数 / Total moves | 搜索深度 / Search depth |
 | ---: | ---: |
-| ≤4 | 4 层 / plies |
-| 5–20 | 8 层 / plies |
+| ≤20 | 8 层 / plies |
 | >20 | 10 层 / plies |
+
+开局曾经只搜 4 层，比"放任对手做出活三就会输"正好少一层：白方会在前几手先做自己的形，等对手成三之后整局都在挨打。现在开局同样是 8 层，代价是前几手每步多几百毫秒。此外分数完全相同的根着会随机挑一个，否则同一开局每次都会重演同一盘棋，一条输棋线路会反复出现。
+
+The opening used to get only four plies, exactly one short of seeing that letting the opponent build an open three loses; White would develop its own shape for a few moves and then spend the rest of the game answering threats. It now gets the same eight plies, at a cost of a few hundred milliseconds per early move. Root moves with identical scores are also picked at random, because otherwise every game replays the same line and a single losing line repeats forever.
 
 白方节点最大化局面分，黑方节点最小化局面分。每层只考虑靠近已有棋子的候选点。候选生成是威胁优先的：能让己方成五的着点只搜索它自己，对手的成五点只搜索挡点；能形成「四」级威胁的着点（活四、双四、四三，以及对手在这些点上的同类威胁）无论评分排名第几都一定进入候选，其余候选按棋形分排序补足到前 4 个，因此分支数通常仍是 4，最多 6。叶节点用「己方最强棋形分 − 1.1 × 对手最强棋形分」评估，两侧分别只按自己的棋形计算，互不掺入；结果被夹在 ±`WIN_SCORE / 2` 之内，保证任何静态局面都不会超过真实的连五分。
 
