@@ -89,3 +89,67 @@ test('Alpha-Beta records cutoffs during recursive search', () => {
     assert.ok(result.nodes > 1);
     assert.ok(result.cutoffs > 0);
 });
+
+function lineBoard(player, length) {
+    const board = engine.createBoard();
+    const first = 7 - Math.floor(length / 2);
+    for (let col = first; col < first + length; col++) board[7][col] = player;
+    return board;
+}
+
+test('static evaluation rewards its own threats and punishes the opponent’s', () => {
+    const white = [2, 3, 4].map(length => engine.evaluateBoard(lineBoard(2, length), 2));
+    assert.ok(white[0] > 0, `an open two should already favour White, got ${white[0]}`);
+    assert.ok(white[0] < white[1] && white[1] < white[2], `White's score should grow with its threat: ${white.join(' < ')}`);
+
+    const black = [2, 3, 4].map(length => engine.evaluateBoard(lineBoard(1, length), 2));
+    assert.ok(black[0] < 0, `an opponent open two should already hurt White, got ${black[0]}`);
+    assert.ok(black[0] > black[1] && black[1] > black[2], `Black's threat should lower White's score: ${black.join(' > ')}`);
+
+    const cap = engine.WIN_SCORE / 2;
+    assert.ok(white[2] <= cap && black[2] >= -cap, 'static evaluation must stay below the terminal win value');
+});
+
+test('a double four outranks a single open four', () => {
+    const doubleFour = engine.createBoard();
+    doubleFour[7][2] = 1;
+    for (let col = 3; col < 6; col++) doubleFour[7][col] = 2;
+    doubleFour[3][6] = 1;
+    for (let row = 4; row < 7; row++) doubleFour[row][6] = 2;
+
+    const openFour = lineBoard(2, 3);
+    assert.ok(
+        engine.evaluatePattern(doubleFour, 7, 6, 2) > engine.evaluatePattern(openFour, 7, 6, 2),
+        'a forced win by two closed fours must score above a lone open four'
+    );
+});
+
+test('the single-threaded fallback takes the best-scoring point instead of the top-left corner', () => {
+    const board = engine.createBoard();
+    board[7][7] = 1;
+    const move = engine.chooseEvaluationMove(board, 2);
+    assert.notDeepEqual(move, { row: 0, col: 0 });
+
+    const best = Math.max(...engine.listEmptyPoints(board).map(m => engine.scoreMove(board, m.row, m.col, 2)));
+    assert.equal(engine.scoreMove(board, move.row, move.col, 2), best);
+});
+
+test('the two-stage evaluation pipeline blocks an opponent open three', () => {
+    const board = engine.createBoard();
+    for (let col = 5; col < 8; col++) board[7][col] = 1;
+    board[9][9] = 2;
+    board[10][10] = 2;
+
+    // Mirrors evaluateInParallel in gomoku-app.js: score every empty point, then search the
+    // highest-ranked root moves and keep the best score.
+    const scored = engine.listEmptyPoints(board)
+        .map(move => ({ ...move, score: engine.scoreMove(board, move.row, move.col, 2) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8);
+    const best = scored
+        .map(move => engine.searchRootMove(board, move, 2, 6))
+        .sort((a, b) => b.score - a.score)[0];
+
+    assert.equal(best.row, 7);
+    assert.ok(best.col === 4 || best.col === 8, `expected the open three to be blocked, got (${best.row},${best.col})`);
+});

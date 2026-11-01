@@ -7,9 +7,16 @@
     const DIRECTIONS = [[1, 0], [0, 1], [1, 1], [1, -1]];
     const WIN_SCORE = 1_000_000_000;
     const SEARCH_BRANCH_LIMIT = 4;
+    const MAX_FORCED_MOVES = 6;
+    const VCF_MAX_DEPTH = 20;
+    const VCF_MAX_NODES = 2000;
+    const QUIESCE_PLIES = 4;
+    const QUIESCE_NODES = 32;
     const SCORES = {
         openFour: 100_000,
         doubleOpenFour: 500_000,
+        doubleFour: 400_000,
+        fourThree: 300_000,
         four: 10_000,
         openThree: 10_000,
         doubleOpenThree: 30_000,
@@ -65,6 +72,7 @@
         let score = 0;
         let openThreeCount = 0;
         let openFourCount = 0;
+        let fourCount = 0;
         board[row][col] = player;
         try {
             for (const [dx, dy] of DIRECTIONS) {
@@ -91,7 +99,10 @@
                     if (blockedCount === 0) {
                         score += SCORES.openFour;
                         openFourCount++;
-                    } else if (blockedCount === 1) score += SCORES.four;
+                    } else if (blockedCount === 1) {
+                        score += SCORES.four;
+                        fourCount++;
+                    }
                 } else if (count === 3) {
                     if (blockedCount === 0) {
                         score += SCORES.openThree;
@@ -105,13 +116,13 @@
         } finally {
             board[row][col] = 0;
         }
+        // A double four (two closed fours, or an open four plus a closed four) and a
+        // four-plus-open-three are both forced wins, so they must outrank a lone open four.
         if (openFourCount >= 2) score += SCORES.doubleOpenFour;
+        else if (openFourCount + fourCount >= 2) score += SCORES.doubleFour;
+        else if (fourCount >= 1 && openThreeCount >= 1) score += SCORES.fourThree;
         else if (openThreeCount >= 2) score += SCORES.doubleOpenThree;
         return score;
-    }
-
-    function evaluateMove(board, row, col, player) {
-        return evaluatePattern(board, row, col, player) + POSITION_SCORE[row][col];
     }
 
     function scoreMove(board, row, col, player) {
@@ -166,21 +177,243 @@
         return candidates.sort((a, b) => b.score - a.score).slice(0, limit);
     }
 
-    function findImmediateMove(board, player) {
+    function patternLevel(value) {
+        if (value >= WIN_SCORE) return 5;
+        if (value >= SCORES.openFour) return 4;
+        if (value >= SCORES.openThree) return 3;
+        return 0;
+    }
+
+    // Move generation for the search. Forcing points are never truncated away, so the one
+    // move that answers an opponent's five or four can never fall outside the candidate set —
+    // which is what a plain top-N cut silently does. Blocking an opponent open three is
+    // covered as well, because that point makes an open four for them (a four-level threat).
+    function getSearchMoves(board, player, limit = SEARCH_BRANCH_LIMIT) {
+        const opponent = player === 1 ? 2 : 1;
+        const points = [];
+        for (const move of listCandidateMoves(board)) {
+            const own = evaluatePattern(board, move.row, move.col, player);
+            const threat = evaluatePattern(board, move.row, move.col, opponent);
+            points.push({
+                row: move.row,
+                col: move.col,
+                own,
+                threat,
+                score: own + threat * 1.2 + POSITION_SCORE[move.row][move.col]
+            });
+        }
+        points.sort((a, b) => b.score - a.score);
+
+        const wins = points.filter(point => patternLevel(point.own) === 5);
+        if (wins.length) return wins;
+
+        const blocks = points.filter(point => patternLevel(point.threat) === 5);
+        if (blocks.length) return blocks;
+
+        // A four-level point either wins by force (open four, double four, four-three) or is
+        // where the opponent would win by force, so every one of them is searched. Softer
+        // three-level threats keep competing through the normal score ordering instead of
+        // widening the tree, which keeps the branching close to the old width.
+        const forced = points.filter(point => patternLevel(point.own) >= 4 || patternLevel(point.threat) >= 4);
+        const selected = forced.slice(0, MAX_FORCED_MOVES);
+        const seen = new Set(selected.map(point => point.row * SIZE + point.col));
+        for (const point of points) {
+            if (selected.length >= limit) break;
+            const key = point.row * SIZE + point.col;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            selected.push(point);
+        }
+        return selected;
+    }
+
+    // Up to `limit` empty points where `player` would immediately complete a five.
+    function fivePointList(board, player, limit = 1) {
+        const points = [];
         for (const move of listCandidateMoves(board)) {
             board[move.row][move.col] = player;
             const win = checkWin(board, move.row, move.col, player);
             board[move.row][move.col] = 0;
-            if (win) return { row: move.row, col: move.col };
+            if (!win) continue;
+            points.push({ row: move.row, col: move.col });
+            if (points.length >= limit) break;
         }
-        return null;
+        return points;
     }
 
+    function findImmediateMove(board, player) {
+        const points = fivePointList(board, player, 1);
+        return points.length ? points[0] : null;
+    }
+
+    // The five points a just-placed stone creates, found by sliding the five-cell windows that
+    // contain it instead of rescanning the whole board. `board[row][col]` must hold `player`.
+    function fivePointsThrough(board, row, col, player) {
+        const points = [];
+        for (const [dx, dy] of DIRECTIONS) {
+            for (let offset = -4; offset <= 0; offset++) {
+                let empty = null;
+                let valid = true;
+                for (let step = 0; step < 5; step++) {
+                    const nextRow = row + (offset + step) * dy;
+                    const nextCol = col + (offset + step) * dx;
+                    if (nextRow < 0 || nextRow >= SIZE || nextCol < 0 || nextCol >= SIZE) { valid = false; break; }
+                    const cell = board[nextRow][nextCol];
+                    if (cell === player) continue;
+                    if (cell !== 0 || empty) { valid = false; break; }
+                    empty = { row: nextRow, col: nextCol };
+                }
+                if (valid && empty) points.push(empty);
+            }
+        }
+        return points;
+    }
+
+    // Victory by Continuous Fours. Only moves that keep creating a four are played, so the
+    // opponent has exactly one legal answer at every step and the line stays forcing all the
+    // way down. Returns `{ move, line, nodes }` for a proven win, or null.
+    function findVcfWin(board, player, maxDepth = VCF_MAX_DEPTH) {
+        const opponent = player === 1 ? 2 : 1;
+        const budget = { nodes: 0 };
+
+        function search(depth) {
+            if (depth <= 0 || budget.nodes >= VCF_MAX_NODES) return null;
+            budget.nodes++;
+            for (const move of listCandidateMoves(board)) {
+                if (patternLevel(evaluatePattern(board, move.row, move.col, player)) < 3) continue;
+                board[move.row][move.col] = player;
+                if (checkWin(board, move.row, move.col, player)) {
+                    board[move.row][move.col] = 0;
+                    return [move];
+                }
+                // The opponent moves next. If he can still complete a five, he simply wins
+                // before our four is converted, so this move cannot start a forcing line.
+                // (A move that blocks his five point clears this check.)
+                if (findImmediateMove(board, opponent) !== null) {
+                    board[move.row][move.col] = 0;
+                    continue;
+                }
+                const fives = fivePointsThrough(board, move.row, move.col, player);
+                if (fives.length === 0) {
+                    board[move.row][move.col] = 0;
+                    continue;
+                }
+                // Two five points means the block cannot cover both: open four or double four.
+                if (fives.length >= 2) {
+                    board[move.row][move.col] = 0;
+                    return [move];
+                }
+                const block = fives[0];
+                board[block.row][block.col] = opponent;
+                // A block that either completes a five for the opponent or hands him a five
+                // threat kills this line: he would win instead of answering.
+                const counter = checkWin(board, block.row, block.col, opponent)
+                    || findImmediateMove(board, opponent) !== null;
+                const deeper = counter ? null : search(depth - 2);
+                board[block.row][block.col] = 0;
+                board[move.row][move.col] = 0;
+                if (deeper) return [move, ...deeper];
+            }
+            return null;
+        }
+
+        const line = search(maxDepth);
+        return line ? { move: line[0], line, nodes: budget.nodes } : null;
+    }
+
+    // The strongest pattern `player` can still create on an empty point. Measured with
+    // evaluatePattern only, so the two sides never leak into each other's number.
+    function bestThreat(board, player) {
+        let best = 0;
+        for (const move of listCandidateMoves(board)) {
+            const value = evaluatePattern(board, move.row, move.col, player);
+            if (value >= WIN_SCORE) return WIN_SCORE;
+            if (value > best) best = value;
+        }
+        return best;
+    }
+
+    // Static evaluation from `player`'s point of view. The opponent's threat is weighted
+    // slightly higher because it forces a reply. The result is clamped well below WIN_SCORE
+    // so that a terminal win always outranks any static position.
     function evaluateBoard(board, player) {
         const opponent = player === 1 ? 2 : 1;
-        const ownThreat = getCandidateMoves(board, player, 12)[0]?.score || 0;
-        const opponentThreat = getCandidateMoves(board, opponent, 12)[0]?.score || 0;
-        return ownThreat - opponentThreat;
+        const raw = bestThreat(board, player) - 1.1 * bestThreat(board, opponent);
+        const cap = WIN_SCORE / 2;
+        return Math.max(-cap, Math.min(cap, raw));
+    }
+
+    // Points where `player` would create a four, i.e. a move that leaves him one step from a
+    // five. Found structurally (does the stone create a five point?) because the score table
+    // rates a plain four and an open three identically.
+    function fourThreatPoints(board, player) {
+        const points = [];
+        for (const move of listCandidateMoves(board)) {
+            if (evaluatePattern(board, move.row, move.col, player) < SCORES.four) continue;
+            board[move.row][move.col] = player;
+            const creates = fivePointsThrough(board, move.row, move.col, player).length > 0;
+            board[move.row][move.col] = 0;
+            if (creates) points.push({ row: move.row, col: move.col });
+        }
+        return points;
+    }
+
+    // Quiescence for forcing threats. Without it every leaf that reaches a five point
+    // collapses to the same clamp value, so at the horizon the search cannot tell a lost
+    // position from a merely risky one and picks by move order. Fours get one exchange layer
+    // on top of that: a four threatens to become a five threat, which the static score alone
+    // can only discount by a fixed factor.
+    function resolveThreats(board, sideToMove, ply, budget, ctx) {
+        const other = sideToMove === 1 ? 2 : 1;
+        if (findImmediateMove(board, sideToMove)) {
+            return sideToMove === 2 ? WIN_SCORE - ply : -WIN_SCORE + ply;
+        }
+        const five = fivePointList(board, other, 2);
+        if (five.length >= 2) {
+            return other === 2 ? WIN_SCORE - ply : -WIN_SCORE + ply;
+        }
+        if (budget <= 0 || ctx.nodes >= QUIESCE_NODES) return evaluateBoard(board, 2);
+        if (five.length === 1) {
+            // Blocking the single five point is the only playable move.
+            ctx.nodes++;
+            const block = five[0];
+            board[block.row][block.col] = sideToMove;
+            const score = resolveThreats(board, other, ply + 1, budget - 1, ctx);
+            board[block.row][block.col] = 0;
+            return score;
+        }
+
+        const mine = fourThreatPoints(board, sideToMove);
+        const theirs = fourThreatPoints(board, other);
+        if (mine.length === 0 && theirs.length === 0) return evaluateBoard(board, 2);
+
+        // One static ply over the forcing candidates only. Recursing here cost roughly eight
+        // times the search time, which is not affordable without a time budget.
+        const moves = [];
+        const seen = new Set();
+        for (const move of [...theirs.slice(0, 2), ...mine.slice(0, 1)]) {
+            const key = move.row * SIZE + move.col;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            moves.push(move);
+        }
+        const maximizing = sideToMove === 2;
+        let best = maximizing ? -Infinity : Infinity;
+        for (const move of moves) {
+            board[move.row][move.col] = sideToMove;
+            const score = evaluateBoard(board, 2);
+            board[move.row][move.col] = 0;
+            if (maximizing ? score > best : score < best) best = score;
+        }
+        return best;
+    }
+
+    function leafScore(board, sideToMove, ply) {
+        const score = evaluateBoard(board, 2);
+        // Quiet leaves (no three or better anywhere) are returned as-is: the quiescence only
+        // pays for itself where the play is actually forcing.
+        if (Math.abs(score) < SCORES.four) return score;
+        return resolveThreats(board, sideToMove, ply, QUIESCE_PLIES, { nodes: 0 });
     }
 
     function searchDepthForMoves(moveCount) {
@@ -194,10 +427,10 @@
         if (lastMove && checkWin(board, lastMove.row, lastMove.col, lastMove.player)) {
             return { score: lastMove.player === 2 ? WIN_SCORE - ply : -WIN_SCORE + ply };
         }
-        if (depth === 0) return { score: evaluateBoard(board, 2) };
+        if (depth === 0) return { score: leafScore(board, player, ply) };
 
-        const moves = getCandidateMoves(board, player, SEARCH_BRANCH_LIMIT);
-        if (moves.length === 0) return { score: evaluateBoard(board, 2) };
+        const moves = getSearchMoves(board, player, SEARCH_BRANCH_LIMIT);
+        if (moves.length === 0) return { score: leafScore(board, player, ply) };
         const maximizing = player === 2;
         let bestScore = maximizing ? -Infinity : Infinity;
         let bestMove = moves[0];
@@ -234,6 +467,24 @@
         const searchBoard = cloneBoard(board);
         searchBoard[move.row][move.col] = player;
         const context = { nodes: 0, cutoffs: 0 };
+        const opponent = player === 1 ? 2 : 1;
+        // A proven continuous-four win for the opponent means this root move simply loses.
+        // Scoring it as a loss (delayed by the line length) keeps the engine from ranking a
+        // dead move above a live one, and it costs about a millisecond per root.
+        if (!checkWin(searchBoard, move.row, move.col, player)) {
+            const counter = findVcfWin(searchBoard, opponent);
+            if (counter) {
+                const penalty = Math.min(counter.line.length * 2, WIN_SCORE / 2);
+                return {
+                    row: move.row,
+                    col: move.col,
+                    score: opponent === 2 ? WIN_SCORE - penalty : -WIN_SCORE + penalty,
+                    nodes: counter.nodes,
+                    cutoffs: 0,
+                    depth
+                };
+            }
+        }
         const result = alphaBeta(
             searchBoard,
             depth - 1,
@@ -252,7 +503,10 @@
         if (ownWin) return ownWin;
         const block = findImmediateMove(board, player === 1 ? 2 : 1);
         if (block) return block;
+        const vcf = findVcfWin(board, player);
+        if (vcf) return vcf.move;
         const moves = listEmptyPoints(board).map(move => ({ ...move, score: scoreMove(board, move.row, move.col, player) }));
+        moves.sort((a, b) => b.score - a.score);
         return moves[0] ? { row: moves[0].row, col: moves[0].col } : null;
     }
 
@@ -332,5 +586,7 @@
         return root.children.map(child => ({ ...child.move, visits: child.visits, wins: child.wins }));
     }
 
-    return { SIZE, WIN_SCORE, createBoard, cloneBoard, checkWin, evaluatePattern, evaluateMove, scoreMove, evaluateBoard, listEmptyPoints, listCandidateMoves, getCandidateMoves, findImmediateMove, chooseEvaluationMove, searchDepthForMoves, searchRootMove, runMcts };
+    return { SIZE, WIN_SCORE, createBoard, cloneBoard, checkWin, evaluatePattern, scoreMove, evaluateBoard, bestThreat, listEmptyPoints, listCandidateMoves, getCandidateMoves, getSearchMoves, findImmediateMove, fivePointsThrough, findVcfWin, resolveThreats, fourThreatPoints, chooseEvaluationMove, searchDepthForMoves, searchRootMove, runMcts };
 });
+
+
