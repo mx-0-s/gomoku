@@ -341,6 +341,91 @@ export const cases = [
                 ? true
                 : `expected a block on row 7, got (${best.row},${best.col})`;
         }
+    },
+    {
+        name: 'a jump four is found as a four threat',
+        check(engine) {
+            // White (7,5)(7,6)(7,8), Black (7,4). (7,9) makes 5,6,_,8,9, so (7,7) becomes
+            // a five point — but the contiguous run through (7,9) is only two, which the old
+            // score prefilter read as an open two and dropped.
+            const current = board(engine, [[7, 4, 1], [7, 5, 2], [7, 6, 2], [7, 8, 2]]);
+            const threats = engine.fourThreatPoints(current, 2);
+            if (!threats.some(move => move.row === 7 && move.col === 9)) return '(7,9) was not seen as a four';
+            const moves = engine.getSearchMoves(current, 2, 4);
+            if (!moves.some(move => move.row === 7 && move.col === 9)) return '(7,9) was dropped from the search candidates';
+            return true;
+        }
+    },
+    {
+        name: 'a jump three is scored as a live three',
+        check(engine) {
+            // White (7,6)(7,8); (7,9) makes 6,_,8,9, which can fill (7,7) to an open four.
+            // The contiguous scan sees only an open two and scores 1,000.
+            const current = board(engine, [[7, 6, 2], [7, 8, 2]]);
+            const score = engine.evaluatePattern(current, 7, 9, 2);
+            return score === 10_000 ? true : `expected 10000, got ${score}`;
+        }
+    },
+    {
+        name: 'a double open three is kept as a forced candidate',
+        check(engine) {
+            const current = board(engine, [[7, 6, 2], [7, 8, 2], [6, 7, 2], [8, 7, 2]]);
+            const score = engine.evaluatePattern(current, 7, 7, 2);
+            if (score !== 50_000) return `expected 50000, got ${score}`;
+            const moves = engine.getSearchMoves(current, 2, 4);
+            return moves.some(move => move.row === 7 && move.col === 7)
+                ? true
+                : '(7,7) was dropped from the search candidates';
+        }
+    },
+    {
+        name: 'VCT finds the double open three win',
+        check(engine) {
+            const current = board(engine, [[7, 6, 2], [7, 8, 2], [6, 7, 2], [8, 7, 2], [2, 2, 1]]);
+            const result = engine.findVctWin(current, 2);
+            if (!result) return 'no VCT found';
+            return result.move.row === 7 && result.move.col === 7
+                ? true
+                : `got (${result.move.row},${result.move.col})`;
+        }
+    },
+    {
+        name: 'VCT does not claim a win over the defender counter-four',
+        check(engine) {
+            // Black's four on row 10 is a five threat, so White's cross is not a free win.
+            const current = board(engine, [
+                [7, 6, 2], [7, 8, 2], [6, 7, 2], [8, 7, 2],
+                [10, 4, 1], [10, 5, 1], [10, 6, 1], [10, 7, 1]
+            ]);
+            return engine.findVctWin(current, 2) === null
+                ? true
+                : 'a VCT win was claimed while Black had a counter-four';
+        }
+    },
+    {
+        name: 'two separate open threes outrank one open three',
+        check(engine) {
+            const one = board(engine, [[7, 6, 2], [7, 7, 2], [7, 8, 2]]);
+            const two = board(engine, [[7, 6, 2], [7, 7, 2], [7, 8, 2], [3, 6, 2], [3, 7, 2], [3, 8, 2]]);
+            const single = engine.evaluateBoard(one, 2);
+            const double = engine.evaluateBoard(two, 2);
+            return double > single ? true : `two threes scored ${double}, one scored ${single}`;
+        }
+    },
+    {
+        name: 'overlapping windows that share a five point do not fake a double four',
+        check(engine) {
+            // Black (7,5)(7,6)(7,7)(7,10), White (2,2). (7,9) creates two 5-cell windows
+            // with four black stones, but both complete at (7,8): one block stops both, so
+            // it is a single four, not a double four.
+            const current = board(engine, [[7, 5, 1], [7, 6, 1], [7, 7, 1], [7, 10, 1], [2, 2, 2]]);
+            const probe = current.map(row => row.slice());
+            probe[7][9] = 1;
+            const fives = engine.fivePointsThrough(probe, 7, 9, 1);
+            if (fives.length !== 1) return `expected one distinct five point, got ${fives.length}`;
+            const score = engine.evaluatePattern(current, 7, 9, 1);
+            return score === 10_000 ? true : `expected 10000, got ${score}`;
+        }
     }
 ];
 

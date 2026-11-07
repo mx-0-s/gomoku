@@ -276,6 +276,11 @@ h1, h2, p { margin-top: 0; }
 .mode-option input:focus-visible + span { outline: 2px solid var(--coral); outline-offset: 2px; }
 
 .mode-description { min-height: 31px; margin: 12px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.intensity-control { display: flex; align-items: center; gap: 10px; margin: 4px 0 0; }
+.intensity-control label { color: var(--ink-soft); font-size: 11px; white-space: nowrap; }
+.intensity-control input[type="range"] { flex: 1; min-width: 0; accent-color: var(--green); }
+.intensity-control input[type="range"]:disabled { cursor: wait; opacity: 0.62; }
+.intensity-control output { min-width: 38px; color: var(--green-dark); font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
 .parallel-indicator { display: flex; align-items: center; gap: 8px; color: var(--green); font-size: 10px; letter-spacing: 0.04em; }
 .parallel-icon { font-size: 17px; line-height: 0.8; }
 

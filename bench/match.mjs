@@ -43,6 +43,8 @@ function chooseMove(board, player, profile) {
     if (profile.vcf) {
         const vcf = engine.findVcfWin(board, player);
         if (vcf) return { move: vcf.move, source: 'vcf' };
+        const vct = engine.findVctWin(board, player);
+        if (vct) return { move: vct.move, source: 'vct' };
     }
     const results = topRoots(board, player, profile.roots)
         .map(move => engine.searchRootMove(board, move, player, profile.depth));

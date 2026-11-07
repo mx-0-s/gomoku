@@ -54,12 +54,28 @@
                         <label class="mode-option"><input type="radio" name="ai-mode" value="evaluate" checked><span>评估函数</span></label>
                         <label class="mode-option"><input type="radio" name="ai-mode" value="mcts"><span>蒙特卡洛树搜索</span></label>
                     </fieldset>
-                    <p class="mode-description" id="modeDescription">全盘空位并行评分，再以 Alpha-Beta 极大极小搜索优化。</p>
+                    <p class="mode-description" id="modeDescription">全盘空位评分，再以 Alpha-Beta 极大极小搜索优化。</p>
                     <div class="parallel-indicator"><span class="parallel-icon" aria-hidden="true">⇉</span><span id="parallelText">并行引擎启动中</span></div>
                 </section>
 
+                <section class="control-section ai-section">
+                    <div class="section-heading"><span class="section-index">03</span><h2>强度与棋风</h2></div>
+                    <fieldset class="mode-switch" aria-label="思考速度">
+                        <legend class="visually-hidden">思考速度</legend>
+                        <label class="mode-option"><input type="radio" name="speed-mode" value="fast"><span>快速 D8</span></label>
+                        <label class="mode-option"><input type="radio" name="speed-mode" value="standard"><span>标准 D10</span></label>
+                    </fieldset>
+                    <p class="mode-description" id="speedDescription">快速：8 层搜索，适合快棋。</p>
+                    <div class="intensity-control">
+                        <label for="attackIntensity">进攻强度</label>
+                        <input type="range" id="attackIntensity" min="0" max="100" step="5" value="0">
+                        <output id="attackIntensityValue" for="attackIntensity">0%</output>
+                    </div>
+                    <p class="mode-description" id="styleDescription">均衡：对手威胁权重更高，优先防守。</p>
+                </section>
+
                 <section class="control-section actions-section">
-                    <div class="section-heading"><span class="section-index">03</span><h2>操作</h2></div>
+                    <div class="section-heading"><span class="section-index">04</span><h2>操作</h2></div>
                     <button class="action-button action-primary" id="restartBtn" type="button"><span class="button-symbol" aria-hidden="true">↻</span>重新开始</button>
                     <button class="action-button action-secondary" id="undoBtn" type="button"><span class="button-symbol" aria-hidden="true">↶</span>悔棋</button>
                 </section>

@@ -1,9 +1,13 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const { SIZE, createBoard, cloneBoard, checkWin, listEmptyPoints, findImmediateMove, findVcfWin, chooseEvaluationMove, runMcts } = GomokuEngine;
+    const { SIZE, createBoard, cloneBoard, checkWin, listEmptyPoints, findImmediateMove, findVcfWin, findVctWin, chooseEvaluationMove, runMcts } = GomokuEngine;
     const HUMAN = 1;
     const AI = 2;
     const MAX_WORKERS = 8;
     const MCTS_ITERATIONS_PER_WORKER = 90;
+    // Persistent workers: creating a Worker (and re-running importScripts) costs more than
+    // a shallow search, so the pool is built once and reused for every move in the game.
+    const POOL_SIZE = Math.max(1, Math.min(MAX_WORKERS, (navigator.hardwareConcurrency || 2) - 1));
+    const ROOT_LIMIT = 12;
 
     let board = createBoard();
     let currentPlayer = HUMAN;
@@ -19,6 +23,34 @@ document.addEventListener('DOMContentLoaded', () => {
     let boardMetrics = { size: 0, margin: 0, cell: 0 };
     let mode = document.querySelector('input[name="ai-mode"]:checked').value;
 
+    function readPreference(key, fallback) {
+        try {
+            return localStorage.getItem(key) || fallback;
+        } catch (error) {
+            return fallback;
+        }
+    }
+
+    function writePreference(key, value) {
+        try {
+            localStorage.setItem(key, value);
+        } catch (error) {
+            // Private mode or a file:// origin can forbid storage; the choice still works
+            // for this session.
+        }
+    }
+
+    const defaultSpeed = (navigator.hardwareConcurrency || 2) >= 8 ? 'standard' : 'fast';
+    let speedMode = readPreference('gomoku-speed', defaultSpeed);
+    // Migrate the old balanced/attack toggle: attack becomes 100%, balanced 0%.
+    const legacyStyle = readPreference('gomoku-style', '');
+    const storedIntensity = readPreference('gomoku-attack', legacyStyle === 'attack' ? '100' : '0');
+    let attackIntensity = Math.max(0, Math.min(100, Number(storedIntensity) || 0));
+
+    function searchDepth() {
+        return speedMode === 'fast' ? 8 : 10;
+    }
+
     const canvas = document.getElementById('gameCanvas');
     const context = canvas.getContext('2d');
     const statusText = document.getElementById('statusText');
@@ -31,16 +63,107 @@ document.addEventListener('DOMContentLoaded', () => {
     const gameTime = document.getElementById('gameTime');
     const parallelText = document.getElementById('parallelText');
     const modeDescription = document.getElementById('modeDescription');
+    const speedDescription = document.getElementById('speedDescription');
+    const styleDescription = document.getElementById('styleDescription');
     const undoButton = document.getElementById('undoBtn');
     const winModal = document.getElementById('winModal');
     const winnerText = document.getElementById('winnerText');
     const winMessage = document.getElementById('winMessage');
     const resultStone = document.getElementById('resultStone');
-    const activeWorkers = new Map();
+    let workerPool = null;
+    let taskSequence = 0;
 
-    function workerCount(taskCount) {
-        const available = Math.max(1, (navigator.hardwareConcurrency || 2) - 1);
-        return Math.max(1, Math.min(MAX_WORKERS, available, taskCount || 1));
+    function createWorkerPool(size) {
+        const workers = [];
+        const idle = [];
+        const queue = [];
+        let closed = false;
+
+        function dispatch() {
+            while (!closed && idle.length > 0 && queue.length > 0) {
+                const worker = idle.pop();
+                const task = queue.shift();
+                worker.current = task;
+                task.worker = worker;
+                worker.postMessage(task.payload);
+            }
+        }
+
+        function finish(worker) {
+            worker.current = null;
+            idle.push(worker);
+            dispatch();
+        }
+
+        function spawn() {
+            const worker = new Worker('js/gomoku-worker.js');
+            worker.current = null;
+            worker.addEventListener('message', event => {
+                const task = worker.current;
+                if (!task || event.data.id !== task.id) return;
+                finish(worker);
+                task.resolve(event.data);
+            });
+            worker.addEventListener('error', event => {
+                const task = worker.current;
+                worker.current = null;
+                if (task) task.reject(new Error(event.message || 'Worker failed'));
+                try { worker.terminate(); } catch (error) { /* already gone */ }
+                const index = workers.indexOf(worker);
+                if (index >= 0) workers.splice(index, 1);
+                if (closed) return;
+                try {
+                    idle.push(spawn());
+                    dispatch();
+                } catch (error) { /* no replacement available */ }
+            });
+            workers.push(worker);
+            return worker;
+        }
+
+        function rejectAll(error) {
+            closed = true;
+            for (const task of queue.splice(0)) task.reject(error);
+            for (const worker of workers) {
+                const task = worker.current;
+                worker.current = null;
+                if (task) task.reject(error);
+                try { worker.terminate(); } catch (terminateError) { /* already gone */ }
+            }
+        }
+
+        try {
+            for (let index = 0; index < size; index++) idle.push(spawn());
+        } catch (error) {
+            for (const worker of workers) {
+                try { worker.terminate(); } catch (terminateError) { /* already gone */ }
+            }
+            throw error;
+        }
+
+        return {
+            request(payload) {
+                return new Promise((resolve, reject) => {
+                    if (closed) {
+                        reject(new Error('Worker pool closed'));
+                        return;
+                    }
+                    taskSequence++;
+                    const id = taskSequence;
+                    queue.push({ id, payload: { ...payload, id }, resolve, reject, worker: null });
+                    dispatch();
+                });
+            },
+            close() {
+                if (closed) return;
+                rejectAll(new Error('Analysis cancelled'));
+            }
+        };
+    }
+
+    function poolRequest(payload) {
+        if (!workerPool) workerPool = createWorkerPool(POOL_SIZE);
+        return workerPool.request(payload);
     }
 
     function updateCanvasSize() {
@@ -144,6 +267,39 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${minutes}:${remainder}`;
     }
 
+    function syncSpeedControls() {
+        document.querySelectorAll('input[name="speed-mode"]').forEach(input => {
+            input.checked = input.value === speedMode;
+        });
+        speedDescription.textContent = speedMode === 'fast'
+            ? '快速：全程 8 层，12 个根着。'
+            : '标准：全程 10 层，12 个根着，思考更久。';
+    }
+
+    function intensityDescription(value) {
+        if (value <= 0) return '均衡：对手威胁权重更高，优先防守。';
+        if (value < 50) return '轻度进攻：稍微重视自己的棋形。';
+        if (value < 100) return '进攻：更重视自己的棋形，可能冒险。';
+        return '强攻：最大进攻权重，风险也最高。';
+    }
+
+    function syncIntensityControl() {
+        const slider = document.getElementById('attackIntensity');
+        const output = document.getElementById('attackIntensityValue');
+        if (slider) slider.value = String(attackIntensity);
+        if (output) output.textContent = `${attackIntensity}%`;
+        styleDescription.textContent = intensityDescription(attackIntensity);
+    }
+
+    function syncOptionAvailability() {
+        const mcts = mode === 'mcts';
+        document.querySelectorAll('input[name="speed-mode"]').forEach(input => {
+            input.disabled = thinking || mcts;
+        });
+        const slider = document.getElementById('attackIntensity');
+        if (slider) slider.disabled = thinking || mcts;
+    }
+
     function updateStatus() {
         if (gameActive) {
             statusText.textContent = thinking ? '白方正在分析局面' : currentPlayer === HUMAN ? '黑方回合' : '白方回合';
@@ -154,6 +310,7 @@ document.addEventListener('DOMContentLoaded', () => {
         moveCount.textContent = history.length.toString();
         undoButton.disabled = thinking || !gameActive || history.length < 2;
         document.querySelectorAll('input[name="ai-mode"]').forEach(input => { input.disabled = thinking; });
+        syncOptionAvailability();
     }
 
     // Derived from a start timestamp instead of an accumulating counter, so a throttled
@@ -176,64 +333,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function cancelAnalysis() {
         analysisId++;
-        for (const cancel of activeWorkers.values()) cancel();
-        activeWorkers.clear();
-    }
-
-    function workerRequest(payload) {
-        return new Promise((resolve, reject) => {
-            let worker;
-            try {
-                worker = new Worker('js/gomoku-worker.js');
-            } catch (error) {
-                reject(error);
-                return;
-            }
-            const cancel = () => {
-                if (!activeWorkers.has(worker)) return;
-                activeWorkers.delete(worker);
-                worker.terminate();
-                reject(new Error('Analysis cancelled'));
-            };
-            activeWorkers.set(worker, cancel);
-            const finish = callback => value => {
-                if (!activeWorkers.has(worker)) return;
-                activeWorkers.delete(worker);
-                worker.terminate();
-                callback(value);
-            };
-            worker.addEventListener('message', event => finish(resolve)(event.data), { once: true });
-            worker.addEventListener('error', event => finish(reject)(new Error(event.message || 'Worker failed')), { once: true });
-            worker.postMessage(payload);
-        });
+        if (workerPool) {
+            workerPool.close();
+            workerPool = null;
+        }
     }
 
     async function evaluateInParallel(snapshot, candidates, version) {
-        const count = workerCount(candidates.length);
-        const scoringJobs = Array.from({ length: count }, (_, index) => ({
-            mode: 'evaluate',
-            board: snapshot,
-            player: AI,
-            candidates: candidates.filter((_, candidateIndex) => candidateIndex % count === index)
-        }));
-        parallelText.textContent = `全盘评分 · ${count} 路并行`;
-        const scoreBatches = await Promise.all(scoringJobs.map(workerRequest));
-        if (version !== analysisId) return null;
-        const rankedMoves = scoreBatches.flatMap(batch => batch.results).sort((a, b) => b.score - a.score);
+        // Scoring every empty point takes a few milliseconds on the main thread. Doing it
+        // here removes a whole worker round-trip and lets the pool spend its time on search.
+        GomokuEngine.setAttackIntensity(attackIntensity / 100);
+        const rankedMoves = candidates
+            .map(move => ({ row: move.row, col: move.col, score: GomokuEngine.scoreMove(snapshot, move.row, move.col, AI) }))
+            .sort((a, b) => b.score - a.score);
         if (!rankedMoves.length) return null;
 
-        const depth = GomokuEngine.searchDepthForMoves(history.length);
-        const rootLimit = Math.min(rankedMoves.length, Math.min(16, Math.max(4, count)));
-        const rootMoves = rankedMoves.slice(0, rootLimit);
-        const searchJobs = Array.from({ length: Math.min(count, rootMoves.length) }, (_, index) => ({
+        const depth = searchDepth();
+        const rootMoves = [];
+        const seen = new Set();
+        // Forcing moves come first, then the best static scores. Twelve roots instead of
+        // four to eight means a good defensive point no longer has to beat every quiet move
+        // just to be searched at all.
+        for (const move of [...GomokuEngine.getSearchMoves(snapshot, AI, ROOT_LIMIT), ...rankedMoves]) {
+            const key = move.row * SIZE + move.col;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            rootMoves.push({ row: move.row, col: move.col });
+            if (rootMoves.length >= ROOT_LIMIT) break;
+        }
+
+        parallelText.textContent = `Alpha-Beta · 深度 ${depth} · ${rootMoves.length} 个根着`;
+        const searchBatches = await Promise.all(rootMoves.map(move => poolRequest({
             mode: 'search',
             board: snapshot,
             player: AI,
             depth,
-            candidates: rootMoves.filter((_, moveIndex) => moveIndex % Math.min(count, rootMoves.length) === index)
-        }));
-        parallelText.textContent = `Alpha-Beta · 深度 ${depth} · ${searchJobs.length} 路`;
-        const searchBatches = await Promise.all(searchJobs.map(workerRequest));
+            intensity: attackIntensity / 100,
+            candidates: [move]
+        })));
         if (version !== analysisId) return null;
         const ranked = searchBatches.flatMap(batch => batch.results).sort((a, b) => b.score - a.score);
         if (!ranked.length) return rootMoves[0];
@@ -245,16 +382,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function mctsInParallel(snapshot, version) {
-        const count = workerCount(MAX_WORKERS);
+        const count = POOL_SIZE;
         parallelText.textContent = `MCTS · ${count} 棵搜索树并行`;
         const jobs = Array.from({ length: count }, (_, index) => ({
             mode: 'mcts',
             board: snapshot,
             player: AI,
             iterations: MCTS_ITERATIONS_PER_WORKER,
+            intensity: attackIntensity / 100,
             seed: (Date.now() + (index + 1) * 7919) >>> 0
         }));
-        const batches = await Promise.all(jobs.map(workerRequest));
+        const batches = await Promise.all(jobs.map(job => poolRequest(job)));
         if (version !== analysisId) return null;
         const totals = new Map();
         for (const { results } of batches) {
@@ -284,9 +422,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (win) return win;
         const block = findImmediateMove(snapshot, HUMAN);
         if (block) return block;
-        // A continuous-four win is a proof, so it is played without asking the search.
+        // Continuous-four and continuous-threat wins are proofs, so they are played
+        // without asking the search.
         const vcf = findVcfWin(snapshot, AI);
         if (vcf) return vcf.move;
+        const vct = findVctWin(snapshot, AI);
+        if (vct) return vct.move;
         if (mode === 'evaluate') {
             const candidates = listEmptyPoints(snapshot);
             if (typeof Worker === 'undefined') return fallbackMove(snapshot, mode);
@@ -299,8 +440,9 @@ document.addEventListener('DOMContentLoaded', () => {
     async function aiMove() {
         if (currentPlayer !== AI || !gameActive || thinking) return;
         thinking = true;
-        searchStatus.textContent = mode === 'mcts' ? 'MCTS SEARCH' : `MINIMAX · D${GomokuEngine.searchDepthForMoves(history.length)}`;
+        searchStatus.textContent = mode === 'mcts' ? 'MCTS SEARCH' : `MINIMAX · D${searchDepth()}`;
         updateStatus();
+        GomokuEngine.setAttackIntensity(attackIntensity / 100);
         const version = analysisId;
         const selectedMode = mode;
         let move = null;
@@ -308,8 +450,10 @@ document.addEventListener('DOMContentLoaded', () => {
             move = await chooseAiMove(version);
         } catch (error) {
             if (version !== analysisId) return;
-            for (const cancel of activeWorkers.values()) cancel();
-            activeWorkers.clear();
+            if (workerPool) {
+                workerPool.close();
+                workerPool = null;
+            }
             move = await fallbackMove(cloneBoard(board), selectedMode);
         }
         if (version !== analysisId) return;
@@ -414,14 +558,36 @@ document.addEventListener('DOMContentLoaded', () => {
             mode = event.target.value;
             modeDescription.textContent = mode === 'mcts'
                 ? '多棵搜索树并行推演，按访问统计选择落点。'
-                : '全盘空位并行评分，再以 Alpha-Beta 极大极小搜索优化。';
-            parallelText.textContent = mode === 'mcts' ? 'MCTS · 多树并行' : '评估函数 · 全盘空位并行';
+                : '全盘空位评分，再以 Alpha-Beta 极大极小搜索优化。';
+            parallelText.textContent = mode === 'mcts' ? 'MCTS · 多树并行' : '评估函数 · 全盘评分 + 根着搜索';
+            syncOptionAvailability();
+            updateStatus();
         });
     });
+    document.querySelectorAll('input[name="speed-mode"]').forEach(input => {
+        input.addEventListener('change', event => {
+            speedMode = event.target.value;
+            writePreference('gomoku-speed', speedMode);
+            syncSpeedControls();
+            updateStatus();
+        });
+    });
+    const attackSlider = document.getElementById('attackIntensity');
+    if (attackSlider) {
+        attackSlider.addEventListener('input', event => {
+            attackIntensity = Math.max(0, Math.min(100, Number(event.target.value) || 0));
+            syncIntensityControl();
+        });
+        attackSlider.addEventListener('change', () => {
+            writePreference('gomoku-attack', String(attackIntensity));
+        });
+    }
     if ('ResizeObserver' in window) new ResizeObserver(updateCanvasSize).observe(canvas);
     else window.addEventListener('resize', updateCanvasSize);
 
-    parallelText.textContent = typeof Worker === 'undefined' ? 'Worker 不可用 · 单线程回退' : `Worker 就绪 · 最多 ${workerCount(MAX_WORKERS)} 路`;
+    syncSpeedControls();
+    syncIntensityControl();
+    parallelText.textContent = typeof Worker === 'undefined' ? 'Worker 不可用 · 单线程回退' : `Worker 就绪 · 常驻 ${POOL_SIZE} 路`;
     updateCanvasSize();
     updateStatus();
     startTimer();
