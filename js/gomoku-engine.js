@@ -456,14 +456,6 @@
         return candidates;
     }
 
-    function getCandidateMoves(board, player, limit = 24) {
-        if (board.every(row => row.every(cell => cell === 0))) return [{ row: 7, col: 7, score: POSITION_SCORE[7][7] }];
-        const candidates = listCandidateMoves(board).map(move => {
-            return { ...move, score: scoreMove(board, move.row, move.col, player) };
-        });
-        return candidates.sort((a, b) => b.score - a.score).slice(0, limit);
-    }
-
     // Move generation for the search. Forcing points are never truncated away, so the one
     // move that answers an opponent's five or four can never fall outside the candidate set —
     // which is what a plain top-N cut silently does. Level 4 also covers blocking an opponent
@@ -1098,83 +1090,7 @@
         return moves[0] ? { row: moves[0].row, col: moves[0].col } : null;
     }
 
-    function createRandom(seed) {
-        let state = seed >>> 0 || 1;
-        return function () {
-            state = (state * 1664525 + 1013904223) >>> 0;
-            return state / 0x1_0000_0000;
-        };
-    }
-
-    function runMcts(board, player, iterations, seed) {
-        const random = createRandom(seed);
-        const rootPlayer = player;
-        const makeNode = (position, nextPlayer, move, parent) => ({
-            board: position,
-            player: nextPlayer,
-            move,
-            parent,
-            children: [],
-            untried: getCandidateMoves(position, nextPlayer, 14),
-            visits: 0,
-            wins: 0
-        });
-        const root = makeNode(cloneBoard(board), player, null, null);
-
-        function selectChild(node) {
-            const maximizing = node.player === rootPlayer;
-            let best = null;
-            let bestValue = maximizing ? -Infinity : Infinity;
-            for (const child of node.children) {
-                const exploitation = child.wins / child.visits;
-                const exploration = Math.sqrt(2 * Math.log(node.visits) / child.visits);
-                const value = exploitation + (maximizing ? exploration : -exploration);
-                if ((maximizing && value > bestValue) || (!maximizing && value < bestValue)) {
-                    best = child;
-                    bestValue = value;
-                }
-            }
-            return best;
-        }
-
-        function rollout(position, nextPlayer) {
-            let current = nextPlayer;
-            for (let turn = 0; turn < 20; turn++) {
-                const win = findImmediateMove(position, current);
-                const move = win || findImmediateMove(position, current === 1 ? 2 : 1);
-                const moves = getCandidateMoves(position, current, 8);
-                if (moves.length === 0) return 0.5;
-                const selected = move || moves[Math.floor(random() * Math.min(5, moves.length))];
-                position[selected.row][selected.col] = current;
-                if (checkWin(position, selected.row, selected.col, current)) return current === rootPlayer ? 1 : 0;
-                current = current === 1 ? 2 : 1;
-            }
-            const difference = evaluateBoard(position, rootPlayer);
-            return 0.5 + 0.5 * difference / (Math.abs(difference) + 100_000);
-        }
-
-        for (let iteration = 0; iteration < iterations; iteration++) {
-            let node = root;
-            while (node.untried.length === 0 && node.children.length > 0) node = selectChild(node);
-            if (node.untried.length > 0) {
-                const index = Math.floor(random() * node.untried.length);
-                const move = node.untried.splice(index, 1)[0];
-                const nextBoard = cloneBoard(node.board);
-                nextBoard[move.row][move.col] = node.player;
-                node = makeNode(nextBoard, node.player === 1 ? 2 : 1, move, node);
-                node.parent.children.push(node);
-            }
-            const result = rollout(cloneBoard(node.board), node.player);
-            for (let current = node; current; current = current.parent) {
-                current.visits++;
-                current.wins += result;
-            }
-        }
-
-        return root.children.map(child => ({ ...child.move, visits: child.visits, wins: child.wins }));
-    }
-
-    return { SIZE, WIN_SCORE, setStyle, setAttackIntensity, createBoard, cloneBoard, checkWin, evaluatePattern, scoreMove, evaluateBoard, bestThreat, listEmptyPoints, listCandidateMoves, getCandidateMoves, getSearchMoves, findImmediateMove, fivePointsThrough, findVcfWin, findVctWin, openThreeDefensePoints, resolveThreats, fourThreatPoints, chooseEvaluationMove, searchDepthForMoves, searchRootMove, runMcts };
+    return { SIZE, WIN_SCORE, setStyle, setAttackIntensity, createBoard, cloneBoard, checkWin, evaluatePattern, scoreMove, evaluateBoard, bestThreat, listEmptyPoints, listCandidateMoves, getSearchMoves, findImmediateMove, fivePointsThrough, findVcfWin, findVctWin, openThreeDefensePoints, resolveThreats, fourThreatPoints, chooseEvaluationMove, searchDepthForMoves, searchRootMove };
 });
 
 

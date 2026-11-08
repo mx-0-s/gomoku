@@ -1,9 +1,8 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const { SIZE, createBoard, cloneBoard, checkWin, listEmptyPoints, findImmediateMove, findVcfWin, findVctWin, chooseEvaluationMove, runMcts } = GomokuEngine;
+    const { SIZE, createBoard, cloneBoard, checkWin, listEmptyPoints, findImmediateMove, findVcfWin, findVctWin, chooseEvaluationMove } = GomokuEngine;
     const HUMAN = 1;
     const AI = 2;
     const MAX_WORKERS = 8;
-    const MCTS_ITERATIONS_PER_WORKER = 90;
     // Persistent workers: creating a Worker (and re-running importScripts) costs more than
     // a shallow search, so the pool is built once and reused for every move in the game.
     const POOL_SIZE = Math.max(1, Math.min(MAX_WORKERS, (navigator.hardwareConcurrency || 2) - 1));
@@ -21,7 +20,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let timerId = null;
     let analysisId = 0;
     let boardMetrics = { size: 0, margin: 0, cell: 0 };
-    let mode = document.querySelector('input[name="ai-mode"]:checked').value;
 
     function readPreference(key, fallback) {
         try {
@@ -62,7 +60,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const moveCount = document.getElementById('moveCount');
     const gameTime = document.getElementById('gameTime');
     const parallelText = document.getElementById('parallelText');
-    const modeDescription = document.getElementById('modeDescription');
     const speedDescription = document.getElementById('speedDescription');
     const styleDescription = document.getElementById('styleDescription');
     const undoButton = document.getElementById('undoBtn');
@@ -292,12 +289,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function syncOptionAvailability() {
-        const mcts = mode === 'mcts';
         document.querySelectorAll('input[name="speed-mode"]').forEach(input => {
-            input.disabled = thinking || mcts;
+            input.disabled = thinking;
         });
         const slider = document.getElementById('attackIntensity');
-        if (slider) slider.disabled = thinking || mcts;
+        if (slider) slider.disabled = thinking;
     }
 
     function updateStatus() {
@@ -309,7 +305,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         moveCount.textContent = history.length.toString();
         undoButton.disabled = thinking || !gameActive || history.length < 2;
-        document.querySelectorAll('input[name="ai-mode"]').forEach(input => { input.disabled = thinking; });
         syncOptionAvailability();
     }
 
@@ -364,7 +359,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         parallelText.textContent = `Alpha-Beta · 深度 ${depth} · ${rootMoves.length} 个根着`;
         const searchBatches = await Promise.all(rootMoves.map(move => poolRequest({
-            mode: 'search',
             board: snapshot,
             player: AI,
             depth,
@@ -381,38 +375,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return bestMoves[Math.floor(Math.random() * bestMoves.length)];
     }
 
-    async function mctsInParallel(snapshot, version) {
-        const count = POOL_SIZE;
-        parallelText.textContent = `MCTS · ${count} 棵搜索树并行`;
-        const jobs = Array.from({ length: count }, (_, index) => ({
-            mode: 'mcts',
-            board: snapshot,
-            player: AI,
-            iterations: MCTS_ITERATIONS_PER_WORKER,
-            intensity: attackIntensity / 100,
-            seed: (Date.now() + (index + 1) * 7919) >>> 0
-        }));
-        const batches = await Promise.all(jobs.map(job => poolRequest(job)));
-        if (version !== analysisId) return null;
-        const totals = new Map();
-        for (const { results } of batches) {
-            for (const result of results) {
-                const key = `${result.row},${result.col}`;
-                const total = totals.get(key) || { row: result.row, col: result.col, visits: 0, wins: 0 };
-                total.visits += result.visits;
-                total.wins += result.wins;
-                totals.set(key, total);
-            }
-        }
-        return [...totals.values()].sort((a, b) => b.visits - a.visits || b.wins - a.wins)[0] || null;
-    }
-
-    async function fallbackMove(snapshot, selectedMode) {
+    async function fallbackMove(snapshot) {
         parallelText.textContent = 'Worker 不可用 · 单线程回退';
-        if (selectedMode === 'mcts') {
-            const results = runMcts(snapshot, AI, 28, Date.now());
-            return results.sort((a, b) => b.visits - a.visits)[0] || null;
-        }
         return chooseEvaluationMove(snapshot, AI);
     }
 
@@ -428,23 +392,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (vcf) return vcf.move;
         const vct = findVctWin(snapshot, AI);
         if (vct) return vct.move;
-        if (mode === 'evaluate') {
-            const candidates = listEmptyPoints(snapshot);
-            if (typeof Worker === 'undefined') return fallbackMove(snapshot, mode);
-            return evaluateInParallel(snapshot, candidates, version);
-        }
-        if (typeof Worker === 'undefined') return fallbackMove(snapshot, mode);
-        return mctsInParallel(snapshot, version);
+        const candidates = listEmptyPoints(snapshot);
+        if (typeof Worker === 'undefined') return fallbackMove(snapshot);
+        return evaluateInParallel(snapshot, candidates, version);
     }
 
     async function aiMove() {
         if (currentPlayer !== AI || !gameActive || thinking) return;
         thinking = true;
-        searchStatus.textContent = mode === 'mcts' ? 'MCTS SEARCH' : `MINIMAX · D${searchDepth()}`;
+        searchStatus.textContent = `MINIMAX · D${searchDepth()}`;
         updateStatus();
         GomokuEngine.setAttackIntensity(attackIntensity / 100);
         const version = analysisId;
-        const selectedMode = mode;
         let move = null;
         try {
             move = await chooseAiMove(version);
@@ -454,7 +413,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 workerPool.close();
                 workerPool = null;
             }
-            move = await fallbackMove(cloneBoard(board), selectedMode);
+            move = await fallbackMove(cloneBoard(board));
         }
         if (version !== analysisId) return;
         thinking = false;
@@ -552,17 +511,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (gameActive && history.length > 0 && !window.confirm('当前对局尚未结束，确定要离开吗？')) {
             event.preventDefault();
         }
-    });
-    document.querySelectorAll('input[name="ai-mode"]').forEach(input => {
-        input.addEventListener('change', event => {
-            mode = event.target.value;
-            modeDescription.textContent = mode === 'mcts'
-                ? '多棵搜索树并行推演，按访问统计选择落点。'
-                : '全盘空位评分，再以 Alpha-Beta 极大极小搜索优化。';
-            parallelText.textContent = mode === 'mcts' ? 'MCTS · 多树并行' : '评估函数 · 全盘评分 + 根着搜索';
-            syncOptionAvailability();
-            updateStatus();
-        });
     });
     document.querySelectorAll('input[name="speed-mode"]').forEach(input => {
         input.addEventListener('change', event => {

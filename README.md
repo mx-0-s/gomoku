@@ -22,12 +22,10 @@ Open <http://localhost:8000/> in a browser. Use the local HTTP server to enable 
 
 - 黑方玩家先行，白方由 AI 控制。
 - 点击棋盘交叉点落子；支持重新开始、悔棋、计时、步数统计和胜负提示。
-- 可在“评估函数”与“蒙特卡洛树搜索”之间切换。
 - “思考速度”可选快速 D8 或标准 D10；“进攻强度”是一根 0%–100% 的滑杆，0% 为均衡、100% 为强攻。默认档按设备核心数选择，并记住上次选择。
 
 - The human plays Black and moves first; the AI plays White.
 - Click an intersection to place a stone. Restart, undo, timer, move count, and win/draw feedback are supported.
-- Choose between **Evaluation + Minimax** and **Monte Carlo Tree Search**.
 - **Speed** offers Fast D8 or Standard D10; **attack intensity** is a 0%–100% slider (0% balanced, 100% all-out attack). The default speed follows the device's core count and the last choice is remembered.
 
 ## 评估函数与极大极小搜索 | Evaluation and Minimax
@@ -113,6 +111,10 @@ Alpha-Beta 维护当前路径上的上界 `alpha` 与下界 `beta`。当 `beta <
 
 Alpha-Beta tracks the current path's lower bound (`alpha`) and upper bound (`beta`). When `beta <= alpha`, remaining sibling branches cannot change the decision, so that branch is pruned. A Zobrist-keyed transposition table returns exact values at sufficient depth and uses lower/upper bounds only when they prune; PVS probes later siblings with a null window and re-searches only when the score lands inside the window. Root moves are the forcing moves first, then the best full-board scores up to twelve, pulled by a persistent Worker pool subject to the device's available concurrency (at most eight).
 
+若浏览器无法创建 Worker（例如直接通过 `file://` 打开），程序会回退到单线程 `chooseEvaluationMove`：先成五/挡五，再 VCF/VCT，最后按全盘评分取最高分；棋力弱于并行搜索，完整并行请通过本地 HTTP 启动。
+
+If the browser cannot create Workers (for example, when opened via `file://`), the game falls back to the single-threaded `chooseEvaluationMove`: immediate wins/blocks first, then VCF/VCT, then the highest full-board score. It is weaker than the parallel search; use the local HTTP server for full parallelism.
+
 ### 连续冲四搜索（VCF）| Continuous Fours (VCF)
 
 极大极小最多看 10 层，而连续冲四的胜负手经常在 10 层以外。VCF 只走能形成「四」的着法（含跳四），对手每一步都只有一个合法应手，所以整条线全程都是逼着，可以在很窄的分支下看到十几次冲四之后。找到即证明，不是估计。
@@ -133,25 +135,6 @@ VCF 只覆盖冲四，很多杀法是“活三 → 冲四 → 活三”的组合
 
 VCF covers continuous fours only, while many kills are "live three → four → live three". VCT treats a live three as forcing too: the defender must play one of its defense points (the two ends of a contiguous three, or the ends and gap of a jump three), otherwise the attacker makes an open four next. Every defense is tried and only a clean sweep returns a proof. To stay sound, the attacker abandons a line whenever the defender already has a five or four threat, since those counter-threats need a different response. A run is capped at 1,200 nodes and 12 plies; a quiet root move also spends 400 nodes checking the opponent's VCT, while a move that already creates a four or live three skips that check because the opponent must answer it first.
 
-## 蒙特卡洛树搜索 | Monte Carlo Tree Search
-
-MCTS 模式最多启动 8 个 Worker；每个 Worker 针对同一局面快照独立运行一棵树，每棵树执行 90 次迭代。主线程汇总各树的根着访问次数，优先选择访问次数最多的着法。
-
-MCTS mode starts up to eight Workers. Each Worker builds an independent tree from the same position snapshot and runs 90 iterations. The main thread aggregates root-move visit counts and selects the most-visited move.
-
-一次迭代依次进行：
-
-Each iteration performs:
-
-1. **选择 / Selection**：使用 UCT，在胜率利用与探索新分支之间权衡；当前走棋方会选择对自己有利的分支。
-2. **扩展 / Expansion**：从附近候选点中加入一个尚未展开的着法。树节点候选最多 14 个。
-3. **模拟 / Rollout**：最多模拟 20 手；发现立即获胜或必须阻挡的着法时优先采用，否则从高评分候选中随机选择。
-4. **回传 / Backpropagation**：将胜负结果及访问次数沿路径回传。达到模拟步数上限时，以双方威胁分差估计结果。
-
-MCTS 使用 UCT 树策略与启发式模拟，不是极大极小搜索，也不使用 Alpha-Beta 剪枝。若浏览器无法创建 Worker（例如直接通过 `file://` 打开），程序会回退到单线程决策；完整并行搜索请通过本地 HTTP 启动。回退模式下「评估函数」不再做 Alpha-Beta，只按全盘空位评分取最高分（仍然优先成五与必挡），「蒙特卡洛树搜索」则只跑一棵 28 次迭代的树，棋力明显弱于并行模式。
-
-MCTS uses UCT and heuristic rollouts; it is not minimax and does not use Alpha-Beta pruning. If the browser cannot create Workers (for example, when opened via `file://`), the game falls back to single-threaded decision-making. Use the local HTTP server for full parallel search. In fallback mode the evaluation branch drops Alpha-Beta and simply takes the highest-scoring empty point (immediate wins and blocks still come first), while the MCTS branch runs a single 28-iteration tree, so both are noticeably weaker than the parallel path.
-
 ## 项目结构 | Project Structure
 
 | 路径 / Path | 说明 / Description |
@@ -159,7 +142,7 @@ MCTS uses UCT and heuristic rollouts; it is not minimax and does not use Alpha-B
 | `index.html` | 页面结构 / Page markup |
 | `css/gomoku.css` | 响应式界面 / Responsive styles |
 | `js/gomoku-app.js` | Canvas、对局控制与 Worker 调度 / Canvas, game control, and Worker orchestration |
-| `js/gomoku-engine.js` | 规则、评分、Minimax 与 MCTS / Rules, scoring, minimax, and MCTS |
+| `js/gomoku-engine.js` | 规则、评分、Minimax、VCF/VCT / Rules, scoring, minimax, VCF/VCT |
 | `js/gomoku-worker.js` | 并行任务入口 / Parallel task entry point |
 | `test/gomoku-engine.test.mjs` | 引擎回归测试 / Engine regression tests |
 | `test/gomoku-tactics.test.mjs` | 战术测试（用例来自 `bench/cases.mjs`） / Tactics tests driven by `bench/cases.mjs` |
@@ -201,9 +184,9 @@ node test/selfplay.mjs `
   --b "name=weak,depth=6,roots=8,vct=0"
 ```
 
-自对弈结果受先手优势影响很大，应同时看总胜负和分执黑/执白胜负；样本至少 6–20 局。它会被 `node --test` 当作一个空测试文件加载，但不会执行对局；回归计数仍以 14 条引擎测试 + 31 条战术测试为准。
+自对弈结果受先手优势影响很大，应同时看总胜负和分执黑/执白胜负；样本至少 6–20 局。它会被 `node --test` 当作一个空测试文件加载，但不会执行对局；回归计数仍以 13 条引擎测试 + 31 条战术测试为准。
 
-Raw self-play totals are dominated by the first-player advantage: read the as-black/as-white split as well, and use at least 6–20 games. `node --test` loads the template as an empty test file but does not play games; the real regression count remains 14 engine tests + 31 tactical tests.
+Raw self-play totals are dominated by the first-player advantage: read the as-black/as-white split as well, and use at least 6–20 games. `node --test` loads the template as an empty test file but does not play games; the real regression count remains 13 engine tests + 31 tactical tests.
 
 ## 基准测试 | Benchmarks
 

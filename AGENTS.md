@@ -61,12 +61,12 @@ node --check js/gomoku-worker.js
 
 | 路径 | 职责 |
 | --- | --- |
-| `index.html` | 页面结构、棋盘 canvas、控制区（算法 / 速度 / 进攻强度 / 操作） |
+| `index.html` | 页面结构、棋盘 canvas、控制区（速度 / 进攻强度 / 操作） |
 | `css/gomoku.css` | 响应式样式；滑杆样式在 `.intensity-control` |
-| `js/gomoku-engine.js` | 规则、棋形评分、评估、Alpha-Beta/TT/PVS、VCF/VCT、MCTS |
+| `js/gomoku-engine.js` | 规则、棋形评分、评估、Alpha-Beta/TT/PVS、VCF/VCT |
 | `js/gomoku-app.js` | Canvas 绘制、对局状态、Worker 池、UI 事件、速度/棋风路由 |
-| `js/gomoku-worker.js` | Worker 任务入口，按 `mode` 调引擎，回包带 `id` |
-| `test/gomoku-engine.test.mjs` | 引擎回归（14 条） |
+| `js/gomoku-worker.js` | Worker 任务入口，执行根着搜索，回包带 `id` |
+| `test/gomoku-engine.test.mjs` | 引擎回归（13 条） |
 | `test/gomoku-tactics.test.mjs` | 战术回归，自动读取 `bench/cases.mjs` |
 | `test/selfplay.mjs` | 手动自对弈模板；检测 `NODE_TEST_CONTEXT`，`node --test` 下不会执行 `main()` |
 | `bench/cases.mjs` | 共享战术用例；新增用例加这里，测试与 bench 同时生效 |
@@ -126,10 +126,6 @@ node --check js/gomoku-worker.js
 - VCT 防守只在**安静根着**上运行（根着自己造出四/活三时，对手必须先应这手，VCT 前提不成立）。
 - 不要在没有新测试的情况下删除这些保守检查，否则会把“看起来像胜”的线路当成必胜。
 
-### 4.5 MCTS
-
-`runMcts` 目前是实验/娱乐模式：每个 Worker 90 次迭代、20 手 rollout、评分前 5 随机。棋力弱于极大极小，**不要把它当强度选项**。
-
 ---
 
 ## 5. 应用层
@@ -139,8 +135,7 @@ node --check js/gomoku-worker.js
 - 快速：全程 D8；
 - 标准：全程 D10；
 - 默认：`navigator.hardwareConcurrency >= 8` 用标准，否则快速；
-- 选择存在 `localStorage` 的 `gomoku-speed`；
-- MCTS 模式下速度选择禁用（固定迭代预算）。
+- 选择存在 `localStorage` 的 `gomoku-speed`。
 
 ### 5.2 进攻强度滑杆
 
@@ -155,8 +150,8 @@ node --check js/gomoku-worker.js
 
 - `POOL_SIZE = min(8, hardwareConcurrency - 1)`；
 - 常驻 Worker，任务队列 + 动态领取；不要退回“每个任务 new Worker/terminate”；
-- 任务消息：`{ id, mode, board, player, candidates, depth, style|intensity, iterations, seed }`；
-- 回包：`{ id, mode, results }`，主线程用 `id` 丢弃过期结果；
+- 任务消息：`{ id, board, player, candidates, depth, style|intensity }`；
+- 回包：`{ id, results }`，主线程用 `id` 丢弃过期结果；
 - `cancelAnalysis()` 会关闭池并把 `workerPool` 置空；下一次分析重建；
 - Worker 报错会替换；不要在多处同时创建池。
 
@@ -219,11 +214,10 @@ node --check js/gomoku-worker.js
 
 ### 改 UI
 
-- 控制区编号目前：01 对局、02 AI 算法、03 强度与棋风、04 操作；
+- 控制区编号目前：01 对局、02 强度与棋风、03 操作；
 - 新增控件后要同步：
   - `updateStatus()` 的禁用逻辑；
   - `syncOptionAvailability()`；
-  - MCTS 模式禁用；
   - `localStorage` 读写；
   - README 的操作说明。
 - DOM 级验证可以用假 DOM + 假 Worker（见第 9 节），避免依赖真实浏览器。
@@ -285,13 +279,13 @@ profile 字段：`name / engine / depth / roots / vcf / vct / intensity`，文�
 
 弱黑对照：`--b "name=weak,depth=6,roots=8,vct=0"`。历史结果：进攻 100% 白 vs 弱黑 6–0；均衡白 vs 同一弱黑 1–3–2；进攻白 vs 均衡黑 3–3（都是小样本）。
 
-`node --test` 会递归执行 `test/` 下的所有 `.mjs`，所以模板用 `NODE_TEST_CONTEXT` / `execArgv` 检测测试 runner，在测试环境中不执行 `main()`；它会被当作一个空测试文件加载，但不会跑对局，回归计数仍以 14 条引擎 + 31 条战术为准。它是手动评估工具，不是回归测试。
+`node --test` 会递归执行 `test/` 下的所有 `.mjs`，所以模板用 `NODE_TEST_CONTEXT` / `execArgv` 检测测试 runner，在测试环境中不执行 `main()`；它会被当作一个空测试文件加载，但不会跑对局，回归计数仍以 13 条引擎 + 31 条战术为准。它是手动评估工具，不是回归测试。
 
 ### DOM 级验证
 
 可以用 Node `vm` + 假 `document`/`canvas`/`Worker` 跑 `gomoku-app.js`：
 
-- 假 Worker 收到 `{id, mode, board, ...}` 后同步调用引擎并回包；
+- 假 Worker 收到 `{id, board, player, candidates, depth}` 后同步调用引擎并回包；
 - 点击 canvas 中心（600×600 时 margin 27、cell 39，中心 300,300）；
 - 轮询 `#moveCount` 是否为 `2`；
 - 可验证快速/标准深度、滑杆、重开后的 Worker 池重建。
@@ -302,7 +296,6 @@ profile 字段：`name / engine / depth / roots / vcf / vct / intensity`，文�
 
 - VCT 是保守版：防守方有反四时直接放弃，可能漏掉一些真实胜；不是完整 threat-space search。
 - VCT 防守只查安静根着，不模拟“我方造威胁、对手被迫应”的线路。
-- MCTS 很弱（每树 90 次迭代），仅实验。
 - 没有开局库；白方前几手靠搜索，固定开局下容易重复。
 - 静态评估是“点级 top3 + 4 级点计数”，仍会高估同一线上的多个点；还不是按线去重。
 - TT 是直接映射、无 aging；风格切换清表。
@@ -330,7 +323,7 @@ profile 字段：`name / engine / depth / roots / vcf / vct / intensity`，文�
 提交前（如果用户要求提交）：
 
 - [ ] 战术 31/31（至少 0% 和 100% 两档）
-- [ ] 引擎测试 14/14
+- [ ] 引擎测试 13/13
 - [ ] `node --check` 三个 JS 文件
 - [ ] `git diff --check`
 - [ ] 用户可见行为变化同步到 README

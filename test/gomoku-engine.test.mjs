@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 const engine = require('../js/gomoku-engine.js');
 
 test('an empty board opens at the center', () => {
-    assert.deepEqual(engine.getCandidateMoves(engine.createBoard(), 2), [{ row: 7, col: 7, score: 10 }]);
+    assert.deepEqual(engine.listCandidateMoves(engine.createBoard()), [{ row: 7, col: 7 }]);
 });
 
 test('restored evaluator assigns the reference open-four and double-open-three weights', () => {
@@ -50,18 +50,6 @@ test('evaluation blocks an opponent immediate win', () => {
     board[7][3] = 2;
     for (let col = 4; col < 8; col++) board[7][col] = 1;
     assert.deepEqual(engine.chooseEvaluationMove(board, 2), { row: 7, col: 8 });
-});
-
-test('MCTS returns legal moves and finite root statistics', () => {
-    const board = engine.createBoard();
-    board[7][7] = 1;
-    const results = engine.runMcts(board, 2, 24, 42);
-    assert.ok(results.length > 0);
-    for (const result of results) {
-        assert.equal(board[result.row][result.col], 0);
-        assert.ok(Number.isFinite(result.visits));
-        assert.ok(Number.isFinite(result.wins));
-    }
 });
 
 test('search depth follows the requested move-count bands', () => {
