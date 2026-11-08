@@ -520,6 +520,48 @@
         return points;
     }
 
+    // Minimal Black third-move book: Kagetsu (花月) and Ugetsu (浦月). This project is
+    // freestyle, so only the third move is taken from the book; every later move goes back
+    // through the normal search. Board is 15x15, so the centre is (7,7).
+    function findOpeningMove(board, player) {
+        if (player !== 1) return null;
+
+        let black = 0;
+        let white = 0;
+        let whiteRow = -1;
+        let whiteCol = -1;
+        for (let row = 0; row < SIZE; row++) {
+            for (let col = 0; col < SIZE; col++) {
+                if (board[row][col] === 1) black++;
+                else if (board[row][col] === 2) {
+                    white++;
+                    whiteRow = row;
+                    whiteCol = col;
+                }
+            }
+        }
+        if (black !== 1 || white !== 1 || board[7][7] !== 1) return null;
+
+        const dr = whiteRow - 7;
+        const dc = whiteCol - 7;
+        let row;
+        let col;
+        if (Math.abs(dr) + Math.abs(dc) === 1) {
+            // Kagetsu: white is orthogonally adjacent; Black 3 sits diagonally beside it,
+            // using the same handedness as the C3-C4-D4 reference pattern.
+            row = whiteRow - dc;
+            col = whiteCol + dr;
+        } else if (Math.abs(dr) === 1 && Math.abs(dc) === 1) {
+            // Ugetsu: white is diagonal; Black 3 mirrors the white row around the centre.
+            row = 14 - whiteRow;
+            col = whiteCol;
+        } else {
+            return null;
+        }
+        if (row < 0 || row >= SIZE || col < 0 || col >= SIZE || board[row][col] !== 0) return null;
+        return { row, col };
+    }
+
     function findImmediateMove(board, player) {
         const points = fivePointList(board, player, 1);
         return points.length ? points[0] : null;
@@ -1090,7 +1132,7 @@
         return moves[0] ? { row: moves[0].row, col: moves[0].col } : null;
     }
 
-    return { SIZE, WIN_SCORE, setStyle, setAttackIntensity, createBoard, cloneBoard, checkWin, evaluatePattern, scoreMove, evaluateBoard, bestThreat, listEmptyPoints, listCandidateMoves, getSearchMoves, findImmediateMove, fivePointsThrough, findVcfWin, findVctWin, openThreeDefensePoints, resolveThreats, fourThreatPoints, chooseEvaluationMove, searchDepthForMoves, searchRootMove };
+    return { SIZE, WIN_SCORE, setStyle, setAttackIntensity, createBoard, cloneBoard, checkWin, evaluatePattern, scoreMove, evaluateBoard, bestThreat, listEmptyPoints, listCandidateMoves, getSearchMoves, findOpeningMove, findImmediateMove, fivePointsThrough, findVcfWin, findVctWin, openThreeDefensePoints, resolveThreats, fourThreatPoints, chooseEvaluationMove, searchDepthForMoves, searchRootMove };
 });
 
 

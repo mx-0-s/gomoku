@@ -122,6 +122,24 @@ test('the single-threaded fallback takes the best-scoring point instead of the t
     assert.equal(engine.scoreMove(board, move.row, move.col, 2), best);
 });
 
+test('the Black third-move book recognises Kagetsu and Ugetsu', () => {
+    const kagetsu = engine.createBoard();
+    kagetsu[7][7] = 1;
+    kagetsu[8][7] = 2;
+    assert.deepEqual(engine.findOpeningMove(kagetsu, 1), { row: 8, col: 8 });
+
+    const ugetsu = engine.createBoard();
+    ugetsu[7][7] = 1;
+    ugetsu[8][8] = 2;
+    assert.deepEqual(engine.findOpeningMove(ugetsu, 1), { row: 6, col: 8 });
+
+    const offBook = engine.createBoard();
+    offBook[7][7] = 1;
+    offBook[7][10] = 2;
+    assert.equal(engine.findOpeningMove(offBook, 1), null);
+    assert.equal(engine.findOpeningMove(kagetsu, 2), null);
+});
+
 test('the two-stage evaluation pipeline blocks an opponent open three', () => {
     const board = engine.createBoard();
     for (let col = 5; col < 8; col++) board[7][col] = 1;

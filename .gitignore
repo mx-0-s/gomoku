@@ -1,6 +1,9 @@
 # Local launcher is intentionally not part of the archived project.
 /start.bat
 
+# Experimental speed engine (manual A/B only, not loaded by the app).
+/bench/variants/
+
 # Operating-system files
 Thumbs.db
 .DS_Store
