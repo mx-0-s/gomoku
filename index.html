@@ -43,8 +43,13 @@
                         <div class="stat"><span class="stat-label">步数</span><strong id="moveCount">0</strong></div>
                         <div class="stat"><span class="stat-label">用时</span><strong id="gameTime">00:00</strong></div>
                     </div>
-                    <div class="player-row"><span class="player-label"><span class="stone stone-black"></span>黑方</span><span class="player-value">你</span></div>
-                    <div class="player-row"><span class="player-label"><span class="stone stone-white"></span>白方</span><span class="player-value">AI 对手</span></div>
+                    <div class="player-row"><span class="player-label"><span class="stone stone-black"></span>黑方</span><span class="player-value" id="blackPlayerValue">你</span></div>
+                    <div class="player-row"><span class="player-label"><span class="stone stone-white"></span>白方</span><span class="player-value" id="whitePlayerValue">AI 对手</span></div>
+                    <fieldset class="mode-switch color-switch" aria-label="选择执子">
+                        <legend class="visually-hidden">选择执子</legend>
+                        <label class="mode-option"><input type="radio" name="human-color" value="1"><span>你执黑</span></label>
+                        <label class="mode-option"><input type="radio" name="human-color" value="2"><span>你执白</span></label>
+                    </fieldset>
                 </section>
 
                 <section class="control-section ai-section">

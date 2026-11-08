@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const { SIZE, createBoard, cloneBoard, checkWin, listEmptyPoints, findImmediateMove, findVcfWin, findVctWin, chooseEvaluationMove } = GomokuEngine;
-    const HUMAN = 1;
-    const AI = 2;
+    const { SIZE, createBoard, cloneBoard, checkWin, listEmptyPoints, findOpeningMove, findImmediateMove, findVcfWin, findVctWin, chooseEvaluationMove } = GomokuEngine;
+    let HUMAN = 1;
+    let AI = 2;
     const MAX_WORKERS = 8;
     // Persistent workers: creating a Worker (and re-running importScripts) costs more than
     // a shallow search, so the pool is built once and reused for every move in the game.
@@ -9,7 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const ROOT_LIMIT = 12;
 
     let board = createBoard();
-    let currentPlayer = HUMAN;
+    let currentPlayer = 1;
     let gameActive = true;
     let thinking = false;
     let history = [];
@@ -40,6 +40,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    let humanColor = readPreference('gomoku-color', '1') === '2' ? 2 : 1;
+    HUMAN = humanColor;
+    AI = humanColor === 1 ? 2 : 1;
+
     const defaultSpeed = (navigator.hardwareConcurrency || 2) >= 8 ? 'standard' : 'fast';
     let speedMode = readPreference('gomoku-speed', defaultSpeed);
     // Migrate the old balanced/attack toggle: attack becomes 100%, balanced 0%.
@@ -59,6 +63,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchStatus = document.getElementById('searchStatus');
     const currentPlayerStone = document.getElementById('currentPlayer');
     const playerText = document.getElementById('playerText');
+    const blackPlayerValue = document.getElementById('blackPlayerValue');
+    const whitePlayerValue = document.getElementById('whitePlayerValue');
     const moveCount = document.getElementById('moveCount');
     const gameTime = document.getElementById('gameTime');
     const parallelText = document.getElementById('parallelText');
@@ -237,11 +243,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function drawHoverStone(row, col) {
         const { x, y } = pointFor(row, col);
         const radius = boardMetrics.cell * 0.42;
+        const isBlack = HUMAN === 1;
         context.beginPath();
         context.arc(x, y, radius, 0, Math.PI * 2);
-        context.fillStyle = 'rgba(18, 26, 21, 0.16)';
+        context.fillStyle = isBlack ? 'rgba(18, 26, 21, 0.16)' : 'rgba(255, 254, 250, 0.32)';
         context.fill();
-        context.strokeStyle = 'rgba(18, 26, 21, 0.32)';
+        context.strokeStyle = isBlack ? 'rgba(18, 26, 21, 0.32)' : 'rgba(255, 254, 250, 0.7)';
         context.lineWidth = 1;
         context.stroke();
     }
@@ -256,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
         context.beginPath();
         context.arc(x, y, radius, 0, Math.PI * 2);
         const gradient = context.createRadialGradient(x - radius * 0.35, y - radius * 0.4, radius * 0.08, x, y, radius);
-        if (player === HUMAN) {
+        if (player === 1) {
             gradient.addColorStop(0, '#555b57');
             gradient.addColorStop(1, '#101511');
         } else {
@@ -265,13 +272,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         context.fillStyle = gradient;
         context.fill();
-        context.strokeStyle = player === HUMAN ? '#101511' : '#c4c1b6';
+        context.strokeStyle = player === 1 ? '#101511' : '#c4c1b6';
         context.lineWidth = 1;
         context.stroke();
         if (lastMove && lastMove.row === row && lastMove.col === col) {
             context.beginPath();
             context.arc(x, y, Math.max(2, radius * 0.19), 0, Math.PI * 2);
-            context.fillStyle = player === HUMAN ? '#f0a287' : '#c45e47';
+            context.fillStyle = player === 1 ? '#f0a287' : '#c45e47';
             context.fill();
         }
     }
@@ -307,6 +314,18 @@ document.addEventListener('DOMContentLoaded', () => {
         return `D${depth} · ${roots}R · ${formatCount(nodes)}N · ${time}`;
     }
 
+    function colorName(color) {
+        return color === 1 ? '黑方' : '白方';
+    }
+
+    function syncColorControls() {
+        document.querySelectorAll('input[name="human-color"]').forEach(input => {
+            input.checked = Number(input.value) === humanColor;
+        });
+        blackPlayerValue.textContent = humanColor === 1 ? '你' : 'AI 对手';
+        whitePlayerValue.textContent = humanColor === 2 ? '你' : 'AI 对手';
+    }
+
     function syncSpeedControls() {
         document.querySelectorAll('input[name="speed-mode"]').forEach(input => {
             input.checked = input.value === speedMode;
@@ -332,7 +351,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function syncOptionAvailability() {
-        document.querySelectorAll('input[name="speed-mode"]').forEach(input => {
+        document.querySelectorAll('input[name="speed-mode"], input[name="human-color"]').forEach(input => {
             input.disabled = thinking;
         });
         const slider = document.getElementById('attackIntensity');
@@ -341,9 +360,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateStatus() {
         if (gameActive) {
-            statusText.textContent = thinking ? '白方正在分析局面' : currentPlayer === HUMAN ? '黑方回合' : '白方回合';
-            playerText.textContent = currentPlayer === HUMAN ? '黑方 · 你' : '白方 · AI';
-            currentPlayerStone.className = `stone ${currentPlayer === HUMAN ? 'stone-black' : 'stone-white'}`;
+            statusText.textContent = thinking ? `${colorName(AI)}正在分析局面` : `${colorName(currentPlayer)}回合`;
+            playerText.textContent = `${colorName(currentPlayer)} · ${currentPlayer === HUMAN ? '你' : 'AI'}`;
+            currentPlayerStone.className = `stone ${currentPlayer === 1 ? 'stone-black' : 'stone-white'}`;
             gameStatus.classList.toggle('is-thinking', thinking);
         }
         moveCount.textContent = history.length.toString();
@@ -411,7 +430,8 @@ document.addEventListener('DOMContentLoaded', () => {
         })));
         if (version !== analysisId) return null;
         const searchElapsed = performance.now() - searchStarted;
-        const ranked = searchBatches.flatMap(batch => batch.results).sort((a, b) => b.score - a.score);
+        const ranked = searchBatches.flatMap(batch => batch.results)
+            .sort((a, b) => (AI === 2 ? b.score - a.score : a.score - b.score));
         if (!ranked.length) return rootMoves[0];
         lastSearchMeta = {
             depth,
@@ -433,6 +453,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function chooseAiMove(version) {
         const snapshot = cloneBoard(board);
+        // The Black AI opens at the centre; searching an empty board is pure waste.
+        if (AI === 1 && history.length === 0) return { row: 7, col: 7 };
+        // Only the Black third move is booked (Kagetsu/Ugetsu); later moves search normally.
+        const opening = findOpeningMove(snapshot, AI);
+        if (opening) return opening;
         const win = findImmediateMove(snapshot, AI);
         if (win) return win;
         const block = findImmediateMove(snapshot, HUMAN);
@@ -488,10 +513,10 @@ document.addEventListener('DOMContentLoaded', () => {
             gameActive = false;
             clearInterval(timerId);
             syncElapsed();
-            statusText.textContent = player === HUMAN ? '黑棋获胜' : '白棋获胜';
-            winnerText.textContent = player === HUMAN ? '黑棋获胜' : '白棋获胜';
+            statusText.textContent = player === 1 ? '黑棋获胜' : '白棋获胜';
+            winnerText.textContent = player === 1 ? '黑棋获胜' : '白棋获胜';
             winMessage.textContent = player === HUMAN ? '你赢下了这场对局。' : 'AI 赢下了这场对局。再试一局。';
-            resultStone.classList.toggle('is-white', player === AI);
+            resultStone.classList.toggle('is-white', player === 2);
             winModal.classList.remove('is-hidden');
         } else if (history.length === SIZE * SIZE) {
             gameActive = false;
@@ -503,7 +528,7 @@ document.addEventListener('DOMContentLoaded', () => {
             winnerText.textContent = '平局';
             winMessage.textContent = '棋盘已满，双方未能连成五子。';
         } else {
-            currentPlayer = player === HUMAN ? AI : HUMAN;
+            currentPlayer = player === 1 ? 2 : 1;
             updateStatus();
             if (currentPlayer === AI) setTimeout(aiMove, 20);
         }
@@ -514,7 +539,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function resetGame() {
         cancelAnalysis();
         board = createBoard();
-        currentPlayer = HUMAN;
+        currentPlayer = 1;
         gameActive = true;
         thinking = false;
         history = [];
@@ -531,6 +556,7 @@ document.addEventListener('DOMContentLoaded', () => {
         drawBoard();
         updateStatus();
         startTimer();
+        if (currentPlayer === AI) setTimeout(aiMove, 80);
     }
 
     function undoMove() {
@@ -544,9 +570,11 @@ document.addEventListener('DOMContentLoaded', () => {
         winningLine = null;
         hoverPoint = null;
         lastSearchMeta = null;
-        currentPlayer = HUMAN;
+        // Black always moves first; the next mover follows the parity of the remaining moves.
+        currentPlayer = history.length % 2 === 0 ? 1 : 2;
         drawBoard();
         updateStatus();
+        if (currentPlayer === AI) setTimeout(aiMove, 20);
     }
 
     canvas.addEventListener('click', event => {
@@ -590,6 +618,16 @@ document.addEventListener('DOMContentLoaded', () => {
             event.preventDefault();
         }
     });
+    document.querySelectorAll('input[name="human-color"]').forEach(input => {
+        input.addEventListener('change', event => {
+            humanColor = Number(event.target.value) === 2 ? 2 : 1;
+            HUMAN = humanColor;
+            AI = humanColor === 1 ? 2 : 1;
+            writePreference('gomoku-color', String(humanColor));
+            syncColorControls();
+            resetGame();
+        });
+    });
     document.querySelectorAll('input[name="speed-mode"]').forEach(input => {
         input.addEventListener('change', event => {
             speedMode = event.target.value;
@@ -611,10 +649,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if ('ResizeObserver' in window) new ResizeObserver(updateCanvasSize).observe(canvas);
     else window.addEventListener('resize', updateCanvasSize);
 
+    syncColorControls();
     syncSpeedControls();
     syncIntensityControl();
     parallelText.textContent = typeof Worker === 'undefined' ? 'Worker 不可用 · 单线程回退' : `Worker 就绪 · 常驻 ${POOL_SIZE} 路`;
     updateCanvasSize();
     updateStatus();
     startTimer();
+    if (currentPlayer === AI) setTimeout(aiMove, 80);
 });

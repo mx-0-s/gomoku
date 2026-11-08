@@ -239,6 +239,7 @@ h1, h2, p { margin-top: 0; }
 .player-value { color: #68746b; }
 
 .mode-switch { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
+.color-switch { grid-template-columns: 1fr 1fr; margin-top: 12px; }
 .mode-option { position: relative; display: flex; align-items: center; min-height: 42px; }
 .mode-option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .mode-option span {

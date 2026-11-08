@@ -1,8 +1,8 @@
 # 五子棋 | Gomoku
 
-一款基于原生 HTML、CSS 与 JavaScript 的 15×15 五子棋。玩家执黑先行，白方由 AI 控制。无需 CDN 或第三方运行时依赖。
+一款基于原生 HTML、CSS 与 JavaScript 的 15×15 五子棋。玩家可选择执黑或执白，AI 执另一方；黑方先行。无需 CDN 或第三方运行时依赖。
 
-A 15×15 Gomoku game built with native HTML, CSS, and JavaScript. The player takes Black and moves first; the AI plays White. No CDN or third-party runtime dependencies are required.
+A 15×15 Gomoku game built with native HTML, CSS, and JavaScript. The player may take Black or White and the AI takes the other side; Black moves first. No CDN or third-party runtime dependencies are required.
 
 ## 启动 | Run
 
@@ -20,12 +20,12 @@ Open <http://localhost:8000/> in a browser. Use the local HTTP server to enable 
 
 ## 对局操作 | Game Controls
 
-- 黑方玩家先行，白方由 AI 控制。
+- 可选择“你执黑”或“你执白”；AI 执另一方，黑方先行。AI 执黑时首手直接下天元。
 - 点击棋盘交叉点落子；支持重新开始、悔棋、计时、步数统计和胜负提示。
 - “思考速度”可选快速 D8 或标准 D10；“进攻强度”是一根 0%–100% 的滑杆，0% 为均衡、100% 为强攻。默认档按设备核心数选择，并记住上次选择。
 - 落子前悬停会显示半透明预览；`R` 重新开始、`U` 悔棋；AI 完成后状态栏显示深度、根着数、节点数和耗时。
 
-- The human plays Black and moves first; the AI plays White.
+- Choose **you play Black** or **you play White**; the AI takes the other side and Black moves first. When the AI is Black it opens at the centre.
 - Click an intersection to place a stone. Restart, undo, timer, move count, and win/draw feedback are supported.
 - **Speed** offers Fast D8 or Standard D10; **attack intensity** is a 0%–100% slider (0% balanced, 100% all-out attack). The default speed follows the device's core count and the last choice is remembered.
 - Hovering shows a translucent placement preview; `R` restarts and `U` undoes; after the AI moves, the status bar shows depth, root count, nodes and elapsed time.
@@ -83,6 +83,16 @@ At any slider position, immediate wins/blocks, forced candidates, VCF and VCT de
 进攻强度 100% 目前仍属实验区间：它更愿意做自己的三/四，但也可能忽视黑方的慢速发展；弱黑测试里 100% 明显更好（6–0 对 1–3–2），同级对抗则大致持平。
 
 100% is still experimental: it prefers building its own threes and fours and may tolerate Black's slower build-up. Against a weaker Black the 100% setting was clearly better (6–0 versus 1–3–2), while equal-strength games were roughly even.
+
+### 黑方第三手开局库 | Black third-move book
+
+AI 执黑时，黑 1 走天元；如果白 2 在正交邻位，黑 3 走花月（Kagetsu）定式点；如果白 2 在对角邻位，黑 3 走浦月（Ugetsu）定式点。之后立即回到正常搜索，不套用连珠的后续必胜树。
+
+When the AI is Black, it opens at the centre. If White's second stone is orthogonally adjacent, Black 3 follows the Kagetsu pattern; if it is diagonally adjacent, Black 3 follows Ugetsu. The game returns to normal search immediately afterwards; the later renju winning tree is not used.
+
+这是连珠定式的简化版，而本项目是 freestyle 无禁手，所以只借用第三手，不宣称后续必胜。
+
+This is a simplified renju book. The project is freestyle (no forbidden moves), so only the third move is borrowed; no later forced win is claimed.
 
 ### 极大极小与 Alpha-Beta | Minimax and Alpha-Beta
 
@@ -186,9 +196,9 @@ node test/selfplay.mjs `
   --b "name=weak,depth=6,roots=8,vct=0"
 ```
 
-自对弈结果受先手优势影响很大，应同时看总胜负和分执黑/执白胜负；样本至少 6–20 局。它会被 `node --test` 当作一个空测试文件加载，但不会执行对局；回归计数仍以 13 条引擎测试 + 31 条战术测试为准。
+自对弈结果受先手优势影响很大，应同时看总胜负和分执黑/执白胜负；样本至少 6–20 局。它会被 `node --test` 当作一个空测试文件加载，但不会执行对局；回归计数仍以 14 条引擎测试 + 31 条战术测试为准。
 
-Raw self-play totals are dominated by the first-player advantage: read the as-black/as-white split as well, and use at least 6–20 games. `node --test` loads the template as an empty test file but does not play games; the real regression count remains 13 engine tests + 31 tactical tests.
+Raw self-play totals are dominated by the first-player advantage: read the as-black/as-white split as well, and use at least 6–20 games. `node --test` loads the template as an empty test file but does not play games; the real regression count remains 14 engine tests + 31 tactical tests.
 
 ## 基准测试 | Benchmarks
 

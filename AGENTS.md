@@ -10,12 +10,12 @@
 
 ## 1. 项目定位
 
-纯前端、零运行时依赖的 15×15 五子棋。玩家执黑先行，AI 执白。
+纯前端、零运行时依赖的 15×15 五子棋。玩家可选择执黑或执白，AI 执另一方；黑方先行。
 
 - 无构建步骤、无 npm 依赖、无 CDN；
 - 引擎同时支持浏览器 `<script>` / Worker `importScripts` / Node `require`（UMD）；
 - 全部逻辑在浏览器本地运行；
-- 设计目标：白方（后手）能防住人类的 VCF/VCT/双三，并抓住对手失误，而不是追求理论必胜（五子棋先手理论必胜）。
+- 设计目标：AI 执任意一方时都能防住 VCF/VCT/双三，并抓住对手失误，而不是追求理论必胜（五子棋先手理论必胜）。
 
 启动：
 
@@ -66,7 +66,7 @@ node --check js/gomoku-worker.js
 | `js/gomoku-engine.js` | 规则、棋形评分、评估、Alpha-Beta/TT/PVS、VCF/VCT |
 | `js/gomoku-app.js` | Canvas 绘制、对局状态、Worker 池、UI 事件、速度/棋风路由 |
 | `js/gomoku-worker.js` | Worker 任务入口，执行根着搜索，回包带 `id` |
-| `test/gomoku-engine.test.mjs` | 引擎回归（13 条） |
+| `test/gomoku-engine.test.mjs` | 引擎回归（14 条） |
 | `test/gomoku-tactics.test.mjs` | 战术回归，自动读取 `bench/cases.mjs` |
 | `test/selfplay.mjs` | 手动自对弈模板；检测 `NODE_TEST_CONTEXT`，`node --test` 下不会执行 `main()` |
 | `bench/cases.mjs` | 共享战术用例；新增用例加这里，测试与 bench 同时生效 |
@@ -126,6 +126,14 @@ node --check js/gomoku-worker.js
 - VCT 防守只在**安静根着**上运行（根着自己造出四/活三时，对手必须先应这手，VCT 前提不成立）。
 - 不要在没有新测试的情况下删除这些保守检查，否则会把“看起来像胜”的线路当成必胜。
 
+### 4.5 黑方第三手小开局库
+
+- `findOpeningMove(board, player)`：只在黑方第三手、棋盘恰好两子（黑天元 + 白第二手）时生效；
+- 白第二手在正交邻位 → 花月（Kagetsu）：黑第三手取白子旁的对角点；
+- 白第二手在对角邻位 → 浦月（Ugetsu）：黑第三手取与白子同列、以中心行镜像的点；
+- 这是连珠定式的简化版；本项目是 freestyle 无禁手，**只借第三手，不套后续必胜树**；
+- 不在定式内、白第二手更远、或棋盘已超过两子时返回 `null`，回到正常搜索。
+
 ---
 
 ## 5. 应用层
@@ -137,7 +145,17 @@ node --check js/gomoku-worker.js
 - 默认：`navigator.hardwareConcurrency >= 8` 用标准，否则快速；
 - 选择存在 `localStorage` 的 `gomoku-speed`。
 
-### 5.2 进攻强度滑杆
+### 5.2 执子颜色
+
+- UI：`input[name="human-color"]`，1=你执黑，2=你执白；AI 执另一方，黑方永远先行；
+- 状态存在 `localStorage` 的 `gomoku-color`；
+- `HUMAN` / `AI` 是动态变量，`currentPlayer` 初始为 1（黑方）；
+- AI 执黑时首手直接下天元，并在 `resetGame` / 初始化后调度 `aiMove`；
+- **所有颜色相关 UI 用实际颜色判断**（`player === 1` 才是黑），不要用 `HUMAN`/`AI` 判断黑白；
+- `evaluateInParallel` 排序：白方 AI 降序，黑方 AI 升序（`searchRootMove` 是白方视角）；
+- 悔棋后按剩余手数奇偶恢复轮到谁：`history.length` 偶数轮黑、奇数轮白。
+
+### 5.3 进攻强度滑杆
 
 - UI：`#attackIntensity`，范围 0–100，步长 5；
 - 0% = 原均衡；100% = 原进攻；
@@ -146,7 +164,7 @@ node --check js/gomoku-worker.js
 - 旧 `gomoku-style=attack` 会迁移为 100%；
 - 滑杆只改静态聚合、根着排序、VCT 进攻预算；**不改**立即成五/挡五、强制候选、VCF/VCT 防守。
 
-### 5.3 Worker 池
+### 5.4 Worker 池
 
 - `POOL_SIZE = min(8, hardwareConcurrency - 1)`；
 - 常驻 Worker，任务队列 + 动态领取；不要退回“每个任务 new Worker/terminate”；
@@ -155,7 +173,7 @@ node --check js/gomoku-worker.js
 - `cancelAnalysis()` 会关闭池并把 `workerPool` 置空；下一次分析重建；
 - Worker 报错会替换；不要在多处同时创建池。
 
-### 5.4 根着
+### 5.5 根着
 
 - 主线程先算全盘空位分（`scoreMove`）；
 - 根着 = `getSearchMoves(...)` 的强制着法 + 静态高分，共 **12 个**（`ROOT_LIMIT`）；
@@ -280,7 +298,7 @@ profile 字段：`name / engine / depth / roots / vcf / vct / intensity`，文�
 
 弱黑对照：`--b "name=weak,depth=6,roots=8,vct=0"`。历史结果：进攻 100% 白 vs 弱黑 6–0；均衡白 vs 同一弱黑 1–3–2；进攻白 vs 均衡黑 3–3（都是小样本）。
 
-`node --test` 会递归执行 `test/` 下的所有 `.mjs`，所以模板用 `NODE_TEST_CONTEXT` / `execArgv` 检测测试 runner，在测试环境中不执行 `main()`；它会被当作一个空测试文件加载，但不会跑对局，回归计数仍以 13 条引擎 + 31 条战术为准。它是手动评估工具，不是回归测试。
+`node --test` 会递归执行 `test/` 下的所有 `.mjs`，所以模板用 `NODE_TEST_CONTEXT` / `execArgv` 检测测试 runner，在测试环境中不执行 `main()`；它会被当作一个空测试文件加载，但不会跑对局，回归计数仍以 14 条引擎 + 31 条战术为准。它是手动评估工具，不是回归测试。
 
 ### DOM 级验证
 
@@ -297,7 +315,7 @@ profile 字段：`name / engine / depth / roots / vcf / vct / intensity`，文�
 
 - VCT 是保守版：防守方有反四时直接放弃，可能漏掉一些真实胜；不是完整 threat-space search。
 - VCT 防守只查安静根着，不模拟“我方造威胁、对手被迫应”的线路。
-- 没有开局库；白方前几手靠搜索，固定开局下容易重复。
+- 只有黑方第三手的花月/浦月小开局库；白方前几手仍靠搜索，固定开局下容易重复。
 - 静态评估是“点级 top3 + 4 级点计数”，仍会高估同一线上的多个点；还不是按线去重。
 - TT 是直接映射、无 aging；风格切换清表。
 - 没有时间预算（产品决定，不要加）。
@@ -323,7 +341,7 @@ profile 字段：`name / engine / depth / roots / vcf / vct / intensity`，文�
 提交前（如果用户要求提交）：
 
 - [ ] 战术 31/31（至少 0% 和 100% 两档）
-- [ ] 引擎测试 13/13
+- [ ] 引擎测试 14/14
 - [ ] `node --check` 三个 JS 文件
 - [ ] `git diff --check`
 - [ ] 用户可见行为变化同步到 README
