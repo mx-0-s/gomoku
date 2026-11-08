@@ -23,10 +23,12 @@ Open <http://localhost:8000/> in a browser. Use the local HTTP server to enable 
 - 黑方玩家先行，白方由 AI 控制。
 - 点击棋盘交叉点落子；支持重新开始、悔棋、计时、步数统计和胜负提示。
 - “思考速度”可选快速 D8 或标准 D10；“进攻强度”是一根 0%–100% 的滑杆，0% 为均衡、100% 为强攻。默认档按设备核心数选择，并记住上次选择。
+- 落子前悬停会显示半透明预览；`R` 重新开始、`U` 悔棋；AI 完成后状态栏显示深度、根着数、节点数和耗时。
 
 - The human plays Black and moves first; the AI plays White.
 - Click an intersection to place a stone. Restart, undo, timer, move count, and win/draw feedback are supported.
 - **Speed** offers Fast D8 or Standard D10; **attack intensity** is a 0%–100% slider (0% balanced, 100% all-out attack). The default speed follows the device's core count and the last choice is remembered.
+- Hovering shows a translucent placement preview; `R` restarts and `U` undoes; after the AI moves, the status bar shows depth, root count, nodes and elapsed time.
 
 ## 评估函数与极大极小搜索 | Evaluation and Minimax
 

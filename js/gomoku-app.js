@@ -20,6 +20,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let timerId = null;
     let analysisId = 0;
     let boardMetrics = { size: 0, margin: 0, cell: 0 };
+    let hoverPoint = null;
+    let lastSearchMeta = null;
 
     function readPreference(key, fallback) {
         try {
@@ -182,6 +184,18 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    function pointFromEvent(event) {
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const col = Math.round((x - boardMetrics.margin) / boardMetrics.cell);
+        const row = Math.round((y - boardMetrics.margin) / boardMetrics.cell);
+        if (row < 0 || row >= SIZE || col < 0 || col >= SIZE) return null;
+        const point = pointFor(row, col);
+        if (Math.hypot(point.x - x, point.y - y) > boardMetrics.cell * 0.48) return null;
+        return { row, col };
+    }
+
     function drawBoard() {
         const { size, margin, cell } = boardMetrics;
         if (!size) return;
@@ -214,6 +228,22 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         if (winningLine) drawWinningLine(winningLine);
+        if (hoverPoint && gameActive && !thinking && currentPlayer === HUMAN
+            && !winningLine && board[hoverPoint.row][hoverPoint.col] === 0) {
+            drawHoverStone(hoverPoint.row, hoverPoint.col);
+        }
+    }
+
+    function drawHoverStone(row, col) {
+        const { x, y } = pointFor(row, col);
+        const radius = boardMetrics.cell * 0.42;
+        context.beginPath();
+        context.arc(x, y, radius, 0, Math.PI * 2);
+        context.fillStyle = 'rgba(18, 26, 21, 0.16)';
+        context.fill();
+        context.strokeStyle = 'rgba(18, 26, 21, 0.32)';
+        context.lineWidth = 1;
+        context.stroke();
     }
 
     function drawStone(row, col, player) {
@@ -262,6 +292,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
         const remainder = (seconds % 60).toString().padStart(2, '0');
         return `${minutes}:${remainder}`;
+    }
+
+    function formatCount(value) {
+        if (value >= 10_000) return `${Math.round(value / 1000)}k`;
+        if (value >= 1_000) return `${(value / 1000).toFixed(1)}k`;
+        return String(value);
+    }
+
+    function searchMetaText() {
+        if (!lastSearchMeta) return 'READY';
+        const { depth, roots, nodes, ms } = lastSearchMeta;
+        const time = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
+        return `D${depth} · ${roots}R · ${formatCount(nodes)}N · ${time}`;
     }
 
     function syncSpeedControls() {
@@ -358,6 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         parallelText.textContent = `Alpha-Beta · 深度 ${depth} · ${rootMoves.length} 个根着`;
+        const searchStarted = performance.now();
         const searchBatches = await Promise.all(rootMoves.map(move => poolRequest({
             board: snapshot,
             player: AI,
@@ -366,8 +410,15 @@ document.addEventListener('DOMContentLoaded', () => {
             candidates: [move]
         })));
         if (version !== analysisId) return null;
+        const searchElapsed = performance.now() - searchStarted;
         const ranked = searchBatches.flatMap(batch => batch.results).sort((a, b) => b.score - a.score);
         if (!ranked.length) return rootMoves[0];
+        lastSearchMeta = {
+            depth,
+            roots: rootMoves.length,
+            nodes: ranked.reduce((sum, result) => sum + (result.nodes || 0), 0),
+            ms: searchElapsed
+        };
         // Equal scores are equally good as far as the evaluation is concerned, so one of them
         // is picked at random. Without this the AI replays the same game down to the move and
         // a single losing line repeats forever.
@@ -400,7 +451,8 @@ document.addEventListener('DOMContentLoaded', () => {
     async function aiMove() {
         if (currentPlayer !== AI || !gameActive || thinking) return;
         thinking = true;
-        searchStatus.textContent = `MINIMAX · D${searchDepth()}`;
+        lastSearchMeta = null;
+        searchStatus.textContent = `MINIMAX · D${searchDepth()} · 分析中`;
         updateStatus();
         GomokuEngine.setAttackIntensity(attackIntensity / 100);
         const version = analysisId;
@@ -417,13 +469,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (version !== analysisId) return;
         thinking = false;
-        searchStatus.textContent = 'READY';
+        searchStatus.textContent = searchMetaText();
         if (move && gameActive && currentPlayer === AI) makeMove(move.row, move.col, AI);
         else updateStatus();
     }
 
     function makeMove(row, col, player) {
         if (!gameActive || board[row][col] !== 0 || (player === HUMAN && thinking)) return false;
+        hoverPoint = null;
         board[row][col] = player;
         const move = { row, col, player };
         history.push(move);
@@ -467,6 +520,8 @@ document.addEventListener('DOMContentLoaded', () => {
         history = [];
         lastMove = null;
         winningLine = null;
+        hoverPoint = null;
+        lastSearchMeta = null;
         elapsedSeconds = 0;
         gameTime.textContent = '00:00';
         statusText.textContent = '黑方先行';
@@ -487,6 +542,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         lastMove = history[history.length - 1] || null;
         winningLine = null;
+        hoverPoint = null;
+        lastSearchMeta = null;
         currentPlayer = HUMAN;
         drawBoard();
         updateStatus();
@@ -494,14 +551,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
     canvas.addEventListener('click', event => {
         if (!gameActive || thinking || currentPlayer !== HUMAN) return;
-        const rect = canvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        const col = Math.round((x - boardMetrics.margin) / boardMetrics.cell);
-        const row = Math.round((y - boardMetrics.margin) / boardMetrics.cell);
-        if (row < 0 || row >= SIZE || col < 0 || col >= SIZE) return;
-        const point = pointFor(row, col);
-        if (Math.hypot(point.x - x, point.y - y) <= boardMetrics.cell * 0.48) makeMove(row, col, HUMAN);
+        const point = pointFromEvent(event);
+        if (point) makeMove(point.row, point.col, HUMAN);
+    });
+
+    canvas.addEventListener('mousemove', event => {
+        const point = gameActive && !thinking && currentPlayer === HUMAN ? pointFromEvent(event) : null;
+        const next = point && board[point.row][point.col] === 0 ? point : null;
+        if (next?.row === hoverPoint?.row && next?.col === hoverPoint?.col) return;
+        hoverPoint = next;
+        drawBoard();
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+        if (!hoverPoint) return;
+        hoverPoint = null;
+        drawBoard();
+    });
+
+    document.addEventListener('keydown', event => {
+        if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+        const tag = event.target && event.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (event.key === 'r' || event.key === 'R') {
+            event.preventDefault();
+            resetGame();
+        } else if (event.key === 'u' || event.key === 'U') {
+            event.preventDefault();
+            undoMove();
+        }
     });
 
     document.getElementById('restartBtn').addEventListener('click', resetGame);

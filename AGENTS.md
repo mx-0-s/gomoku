@@ -220,6 +220,7 @@ node --check js/gomoku-worker.js
   - `syncOptionAvailability()`；
   - `localStorage` 读写；
   - README 的操作说明。
+- 现有交互：落子前 `hoverPoint` 半透明预览（`mousemove`/`mouseleave`）、`R` 重开、`U` 悔棋；AI 完成后 `searchStatus` 显示 `D10 · 12R · 83kN · 1.4s` 形式的搜索统计（`lastSearchMeta`）。
 - DOM 级验证可以用假 DOM + 假 Worker（见第 9 节），避免依赖真实浏览器。
 
 ---
@@ -307,8 +308,7 @@ profile 字段：`name / engine / depth / roots / vcf / vct / intensity`，文�
 1. 进攻强度 25/50/75/100 各跑一批弱黑/同级，找默认值；
 2. 白方开局库（4–6 手）；
 3. 按“威胁等级”拆分对手权重，避免进攻模式忽视黑方慢速活三；
-4. 完整 VCT 防守 / 线级威胁评估；
-5. UI 显示深度、节点数、耗时。
+4. 完整 VCT 防守 / 线级威胁评估。
 
 ---
 
