@@ -240,6 +240,7 @@ h1, h2, p { margin-top: 0; }
 
 .mode-switch { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
 .color-switch { grid-template-columns: 1fr 1fr; margin-top: 12px; }
+.mode-option-wide { grid-column: 1 / -1; }
 .mode-option { position: relative; display: flex; align-items: center; min-height: 42px; }
 .mode-option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .mode-option span {
@@ -278,7 +279,11 @@ h1, h2, p { margin-top: 0; }
 
 .mode-description { min-height: 31px; margin: 12px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .intensity-control { display: flex; align-items: center; gap: 10px; margin: 4px 0 0; }
-.intensity-control label { color: var(--ink-soft); font-size: 11px; white-space: nowrap; }
+.intensity-control.is-hidden { display: none; }
+.intensity-control label { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-soft); font-size: 11px; white-space: nowrap; }
+.intensity-control label .stone { width: 11px; height: 11px; }
+.selfplay-intensities { display: grid; gap: 10px; margin: 2px 0 0; }
+.selfplay-intensities.is-hidden { display: none; }
 .intensity-control input[type="range"] { flex: 1; min-width: 0; accent-color: var(--green); }
 .intensity-control input[type="range"]:disabled { cursor: wait; opacity: 0.62; }
 .intensity-control output { min-width: 38px; color: var(--green-dark); font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }

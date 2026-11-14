@@ -1,8 +1,8 @@
 # 五子棋 | Gomoku
 
-一款基于原生 HTML、CSS 与 JavaScript 的 15×15 五子棋。玩家可选择执黑或执白，AI 执另一方；黑方先行。无需 CDN 或第三方运行时依赖。
+一款基于原生 HTML、CSS 与 JavaScript 的 15×15 五子棋。玩家可选择执黑或执白，AI 执另一方；也可以切换到自对弈演示，黑白双方都由标准 D10 AI 执子，两边的棋风分别调节。黑方先行。无需 CDN 或第三方运行时依赖。
 
-A 15×15 Gomoku game built with native HTML, CSS, and JavaScript. The player may take Black or White and the AI takes the other side; Black moves first. No CDN or third-party runtime dependencies are required.
+A 15×15 Gomoku game built with native HTML, CSS, and JavaScript. The player may take Black or White and the AI takes the other side, or switch to a self-play demo where both colours are driven by the standard D10 AI with independently adjustable styles. Black moves first. No CDN or third-party runtime dependencies are required.
 
 ## 启动 | Run
 
@@ -20,14 +20,14 @@ Open <http://localhost:8000/> in a browser. Use the local HTTP server to enable 
 
 ## 对局操作 | Game Controls
 
-- 可选择“你执黑”或“你执白”；AI 执另一方，黑方先行。AI 执黑时首手直接下天元。
+- 对局模式可选择“你执黑”“你执白”或“自对弈演示”。自对弈中黑白双方都由 AI 自动行棋，固定使用标准 D10，并分别用“黑方棋风 / 白方棋风”两根滑杆独立控制进攻强度。
 - 点击棋盘交叉点落子；支持重新开始、悔棋、计时、步数统计和胜负提示。
-- “思考速度”可选快速 D8 或标准 D10；“进攻强度”是一根 0%–100% 的滑杆，0% 为均衡、100% 为强攻。默认档按设备核心数选择，并记住上次选择。
+- “思考速度”可选快速 D8 或标准 D10，自对弈模式固定为标准 D10；“进攻强度”是一根 0%–100% 的滑杆，0% 为均衡、100% 为强攻。默认档按设备核心数选择，并记住上次选择。
 - 落子前悬停会显示半透明预览；`R` 重新开始、`U` 悔棋；AI 完成后状态栏显示深度、根着数、节点数和耗时。
 
-- Choose **you play Black** or **you play White**; the AI takes the other side and Black moves first. When the AI is Black it opens at the centre.
+- Choose **you play Black**, **you play White**, or **self-play demo**. In self-play both colours move automatically with the standard D10 AI, and separate **Black style / White style** sliders control each side's attack intensity.
 - Click an intersection to place a stone. Restart, undo, timer, move count, and win/draw feedback are supported.
-- **Speed** offers Fast D8 or Standard D10; **attack intensity** is a 0%–100% slider (0% balanced, 100% all-out attack). The default speed follows the device's core count and the last choice is remembered.
+- **Speed** offers Fast D8 or Standard D10; self-play is always Standard D10. **Attack intensity** is a 0%–100% slider (0% balanced, 100% all-out attack). The default speed follows the device's core count and the last choice is remembered.
 - Hovering shows a translucent placement preview; `R` restarts and `U` undoes; after the AI moves, the status bar shows depth, root count, nodes and elapsed time.
 
 ## 评估函数与极大极小搜索 | Evaluation and Minimax
@@ -66,19 +66,27 @@ The static evaluation no longer reads only the single strongest point threat. Ea
 
 ### 棋风 | Play Style
 
-“进攻强度”滑杆把三组权重和 VCT 进攻预算从均衡线性插值到强攻：
+“进攻强度”滑杆把两组权重和 VCT 进攻预算从均衡线性插值到强攻：
 
-The attack-intensity slider interpolates three weights and the VCT attack budget from Balanced to all-out Attack:
+The attack-intensity slider interpolates two weights and the VCT attack budget from Balanced to all-out Attack:
 
-| 强度 / Intensity | 根着对手权重 / Root opp. | 叶评估对手权重 / Leaf opp. | 4 级奖励 / L4 bonus | VCT 预算 / VCT nodes |
-| ---: | ---: | ---: | ---: | ---: |
-| 0% | 1.2 | 1.1 | 10,000 | 1,200 |
-| 50% | 1.1 | 1.0 | 12,000 | 1,500 |
-| 100% | 1.0 | 0.9 | 14,000 | 1,800 |
+| 强度 / Intensity | 根着对手权重 / Root opp. | 4 级奖励 / L4 bonus | VCT 预算 / VCT nodes |
+| ---: | ---: | ---: | ---: |
+| 0% | 1.2 | 10,000 | 1,200 |
+| 50% | 1.1 | 12,000 | 1,500 |
+| 100% | 1.0 | 14,000 | 1,800 |
+
+叶子评估必须换色反对称：`evaluateBoard` 对双方都用「己方威胁 − 对手威胁」，不再给对手乘一个大于 1 的系数。此前的 `own − 1.1 × threat` 只有白方视角成立（白方防 1.1）；`searchRootMove` 永远返回白方视角分，黑方靠最小化同一个数来用，于是黑方实际变成「自己进攻 1.1、防白 1.0」——同一档位下黑白不再是同一个棋手（minimax 本身两种写法都自洽，问题在于两色不再互为镜像）。防守倾向只保留在根着排序的 `moveOpponent`：它由双方各自按自己的视角计算，对两色等价。
+
+The leaf evaluation must be antisymmetric under a colour swap: `evaluateBoard` uses "own threats − opponent threats" for both sides instead of multiplying the opponent by a factor above one. The old `own − 1.1 × threat` only held from White's side; `searchRootMove` always returns White's value and Black minimises that same number, so Black effectively attacked at 1.1 and defended at 1.0 — the two colours stopped being the same player at the same setting (minimax is self-consistent either way; the defect is the missing mirror image). The defensive bias now lives only in `moveOpponent`, which each side computes from its own point of view and is therefore equal for both colours.
 
 无论滑杆在哪一档，立即成五/挡五、强制候选、VCF 与 VCT 防守都不变；改变的只是静态聚合、根着排序和进攻 VCT 预算。默认 0%，即原来的均衡行为。
 
+自对弈演示模式固定使用标准 D10，并为黑白双方各提供一根棋风滑杆。每一手轮到哪一方，就用哪一方的滑杆值设置引擎权重；两套取值互不影响，分别保存在 `gomoku-selfplay-black` 与 `gomoku-selfplay-white`。演示进行中也可以调整滑杆，新取值从该方的下一手开始生效。
+
 At any slider position, immediate wins/blocks, forced candidates, VCF and VCT defense are unchanged; only the static aggregation, root ordering and the VCT attack budget move. The default is 0%, which is the original balanced behaviour.
+
+The self-play demo always runs at Standard D10 and exposes one style slider per colour. When a side is to move, its own slider sets the engine weights, so the two settings never leak into each other; they are stored as `gomoku-selfplay-black` and `gomoku-selfplay-white`. The sliders stay editable during the demo and the new value takes effect from that colour's next move.
 
 进攻强度 100% 目前仍属实验区间：它更愿意做自己的三/四，但也可能忽视黑方的慢速发展；弱黑测试里 100% 明显更好（6–0 对 1–3–2），同级对抗则大致持平。
 
@@ -109,7 +117,7 @@ The application offers two fixed depths; the root move also counts as one ply:
 
 The engine still keeps `searchDepthForMoves` ("8 plies up to move 20, 10 after") for benchmarks and the single-threaded fallback; the app no longer uses it. Root moves with identical scores are still picked at random, otherwise every game replays the same line.
 
-白方节点最大化局面分，黑方节点最小化局面分。每层只考虑靠近已有棋子的候选点。候选生成是威胁优先的：能让己方成五的着点只搜索它自己，对手的成五点只搜索挡点；任何能造出成五点的着法（连四、冲四、跳四）、双四/四三/双活三这类 4 级必胜形，以及对手的 4 级威胁点，无论评分排名第几都一定进入候选；其余候选按棋形分排序补足到前 4 个，因此分支数通常仍是 4，最多 6。叶节点用「己方前三威胁加权 + 4 级点奖励 − 棋风系数 × 对手同项」评估，两侧分别只按自己的棋形计算，互不掺入；结果被夹在 ±`WIN_SCORE / 2` 之内，保证任何静态局面都不会超过真实的连五分。均衡棋风下对手系数是 1.1，进攻棋风降到 0.9。
+白方节点最大化局面分，黑方节点最小化局面分。每层只考虑靠近已有棋子的候选点。候选生成是威胁优先的：能让己方成五的着点只搜索它自己，对手的成五点只搜索挡点；任何能造出成五点的着法（连四、冲四、跳四）、双四/四三/双活三这类 4 级必胜形，以及对手的 4 级威胁点，无论评分排名第几都一定进入候选；其余候选按棋形分排序补足到前 4 个，因此分支数通常仍是 4，最多 6。叶节点用「己方前三威胁加权 + 4 级点奖励 − 对手同项」评估，两侧分别只按自己的棋形计算，互不掺入，且对双方严格零和；结果被夹在 ±`WIN_SCORE / 2` 之内，保证任何静态局面都不会超过真实的连五分。
 
 只要叶节点的评估绝对值达到「冲四」量级（10,000，即棋盘上已经出现三级以上棋形），就进入**静止搜索**：先处理成五威胁——轮走方能成五直接判胜，对手只有一个成五点就必须挡掉（最多延伸 4 手），有两个成五点则判负；没有成五威胁时再看「四」这一层，只在对手的造四点、以及自己的造四点里各挑一到两个，各补一手后静态评估取最优。四这一层只做一层：递归版本实测要贵约 8 倍，而在没有时间预算的前提下付不起。
 
@@ -196,9 +204,9 @@ node test/selfplay.mjs `
   --b "name=weak,depth=6,roots=8,vct=0"
 ```
 
-自对弈结果受先手优势影响很大，应同时看总胜负和分执黑/执白胜负；样本至少 6–20 局。它会被 `node --test` 当作一个空测试文件加载，但不会执行对局；回归计数仍以 14 条引擎测试 + 31 条战术测试为准。
+自对弈结果受先手优势影响很大，应同时看总胜负和分执黑/执白胜负；样本至少 6–20 局。它会被 `node --test` 当作一个空测试文件加载，但不会执行对局；回归计数仍以 15 条引擎测试 + 31 条战术测试为准。
 
-Raw self-play totals are dominated by the first-player advantage: read the as-black/as-white split as well, and use at least 6–20 games. `node --test` loads the template as an empty test file but does not play games; the real regression count remains 14 engine tests + 31 tactical tests.
+Raw self-play totals are dominated by the first-player advantage: read the as-black/as-white split as well, and use at least 6–20 games. `node --test` loads the template as an empty test file but does not play games; the real regression count remains 15 engine tests + 31 tactical tests.
 
 ## 基准测试 | Benchmarks
 

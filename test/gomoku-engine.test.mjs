@@ -98,6 +98,32 @@ test('static evaluation rewards its own threats and punishes the opponent’s', 
     assert.ok(white[2] <= cap && black[2] >= -cap, 'static evaluation must stay below the terminal win value');
 });
 
+// The leaf evaluation is always read from White's side, so the two colours are only the same
+// player if swapping them negates the score. A weight above 1 on the opponent term broke this:
+// White defended at 1.1 while Black, minimising the same number, attacked at 1.1.
+test('the leaf evaluation is antisymmetric under a colour swap', () => {
+    const board = engine.createBoard();
+    board[7][7] = 1;
+    board[6][7] = 2;
+    board[7][6] = 1;
+    board[8][8] = 2;
+    board[6][6] = 1;
+    board[9][9] = 2;
+    const swapped = board.map(row => row.map(cell => (cell === 0 ? 0 : 3 - cell)));
+
+    const whiteScore = engine.evaluateBoard(board, 2);
+    const swappedWhiteScore = engine.evaluateBoard(swapped, 2);
+    assert.equal(swappedWhiteScore, -whiteScore, `evaluateBoard must negate under a colour swap: ${whiteScore} vs ${swappedWhiteScore}`);
+
+    // Same property one ply deeper: White's root score on `board` must equal minus Black's
+    // root score on the colour-swapped board, for the same move.
+    for (const move of [{ row: 7, col: 5 }, { row: 8, col: 6 }, { row: 6, col: 8 }]) {
+        const whiteRoot = engine.searchRootMove(board, move, 2, 2).score;
+        const blackRoot = engine.searchRootMove(swapped, move, 1, 2).score;
+        assert.equal(blackRoot, -whiteRoot, `(${move.row},${move.col}) must mirror: ${whiteRoot} vs ${blackRoot}`);
+    }
+});
+
 test('a double four outranks a single open four', () => {
     const doubleFour = engine.createBoard();
     doubleFour[7][2] = 1;

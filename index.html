@@ -45,10 +45,11 @@
                     </div>
                     <div class="player-row"><span class="player-label"><span class="stone stone-black"></span>黑方</span><span class="player-value" id="blackPlayerValue">你</span></div>
                     <div class="player-row"><span class="player-label"><span class="stone stone-white"></span>白方</span><span class="player-value" id="whitePlayerValue">AI 对手</span></div>
-                    <fieldset class="mode-switch color-switch" aria-label="选择执子">
-                        <legend class="visually-hidden">选择执子</legend>
+                    <fieldset class="mode-switch color-switch" aria-label="选择对局模式">
+                        <legend class="visually-hidden">选择对局模式</legend>
                         <label class="mode-option"><input type="radio" name="human-color" value="1"><span>你执黑</span></label>
                         <label class="mode-option"><input type="radio" name="human-color" value="2"><span>你执白</span></label>
+                        <label class="mode-option mode-option-wide"><input type="radio" name="human-color" value="self"><span>自对弈演示</span></label>
                     </fieldset>
                 </section>
 
@@ -60,10 +61,22 @@
                         <label class="mode-option"><input type="radio" name="speed-mode" value="standard"><span>标准 D10</span></label>
                     </fieldset>
                     <p class="mode-description" id="speedDescription">快速：8 层搜索，适合快棋。</p>
-                    <div class="intensity-control">
+                    <div class="intensity-control" id="singleIntensityControl">
                         <label for="attackIntensity">进攻强度</label>
                         <input type="range" id="attackIntensity" min="0" max="100" step="5" value="0">
                         <output id="attackIntensityValue" for="attackIntensity">0%</output>
+                    </div>
+                    <div class="selfplay-intensities is-hidden" id="selfplayIntensities">
+                        <div class="intensity-control">
+                            <label for="blackIntensity"><span class="stone stone-black"></span>黑方棋风</label>
+                            <input type="range" id="blackIntensity" min="0" max="100" step="5" value="0" aria-label="黑方进攻强度">
+                            <output id="blackIntensityValue" for="blackIntensity">0%</output>
+                        </div>
+                        <div class="intensity-control">
+                            <label for="whiteIntensity"><span class="stone stone-white"></span>白方棋风</label>
+                            <input type="range" id="whiteIntensity" min="0" max="100" step="5" value="0" aria-label="白方进攻强度">
+                            <output id="whiteIntensityValue" for="whiteIntensity">0%</output>
+                        </div>
                     </div>
                     <p class="mode-description" id="styleDescription">均衡：对手威胁权重更高，优先防守。</p>
                     <div class="parallel-indicator"><span class="parallel-icon" aria-hidden="true">⇉</span><span id="parallelText">并行引擎启动中</span></div>

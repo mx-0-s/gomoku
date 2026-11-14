@@ -10,7 +10,7 @@
 
 ## 1. 项目定位
 
-纯前端、零运行时依赖的 15×15 五子棋。玩家可选择执黑或执白，AI 执另一方；黑方先行。
+纯前端、零运行时依赖的 15×15 五子棋。玩家可选择执黑或执白，AI 执另一方；也可切换到自对弈演示，双方均由标准 D10 AI 执子、棋风分别可调。黑方先行。
 
 - 无构建步骤、无 npm 依赖、无 CDN；
 - 引擎同时支持浏览器 `<script>` / Worker `importScripts` / Node `require`（UMD）；
@@ -66,7 +66,7 @@ node --check js/gomoku-worker.js
 | `js/gomoku-engine.js` | 规则、棋形评分、评估、Alpha-Beta/TT/PVS、VCF/VCT |
 | `js/gomoku-app.js` | Canvas 绘制、对局状态、Worker 池、UI 事件、速度/棋风路由 |
 | `js/gomoku-worker.js` | Worker 任务入口，执行根着搜索，回包带 `id` |
-| `test/gomoku-engine.test.mjs` | 引擎回归（14 条） |
+| `test/gomoku-engine.test.mjs` | 引擎回归（15 条） |
 | `test/gomoku-tactics.test.mjs` | 战术回归，自动读取 `bench/cases.mjs` |
 | `test/selfplay.mjs` | 手动自对弈模板；检测 `NODE_TEST_CONTEXT`，`node --test` 下不会执行 `main()` |
 | `bench/cases.mjs` | 共享战术用例；新增用例加这里，测试与 bench 同时生效 |
@@ -105,10 +105,10 @@ node --check js/gomoku-worker.js
 
 - 双方各取前三威胁分，按 `1 / 0.2 / 0.05` 加权；
 - 每个 4 级威胁点加 `activeStyle.levelFour`（默认 10,000，最高 14,000）；
-- 减去 `activeStyle.boardOpponent × 对手同项`（默认 1.1，最低 0.9）；
+- **换色反对称**：`raw = own - threat`，双方用同一个系数 1.0。不要给对手乘大于 1 的系数 —— `searchRootMove` 只返回白方视角分，黑方靠取最小来用，非对称系数会让黑方实际变成「自攻 1.1、防白 1.0」，两色不再是同一个棋手（minimax 本身自洽，坏在缺少镜像）。`test/selfplay.mjs` 之外的对称性验证方法见第 9 节；
 - 结果夹在 `±WIN_SCORE/2`，保证真实连五分永远高于静态分。
 
-风格权重集中在 `STYLE_PRESETS` 和 `setAttackIntensity(0..1)`。风格变化必须清空置换表（`ttFlag.fill(0)`），否则旧权重下的缓存分数会串用。
+风格权重集中在 `STYLE_PRESETS` 和 `setAttackIntensity(0..1)`。`moveOpponent` 只用于根着/节点的着法排序，按各自视角计算，对双方等价。风格变化必须清空置换表（`ttFlag.fill(0)`），否则旧权重下的缓存分数会串用。
 
 ### 4.3 搜索
 
@@ -142,26 +142,30 @@ node --check js/gomoku-worker.js
 
 - 快速：全程 D8；
 - 标准：全程 D10；
+- 自对弈演示固定标准 D10，速度切换在该模式下禁用；
 - 默认：`navigator.hardwareConcurrency >= 8` 用标准，否则快速；
 - 选择存在 `localStorage` 的 `gomoku-speed`。
 
-### 5.2 执子颜色
+### 5.2 执子颜色与自对弈
 
-- UI：`input[name="human-color"]`，1=你执黑，2=你执白；AI 执另一方，黑方永远先行；
-- 状态存在 `localStorage` 的 `gomoku-color`；
+- UI：`input[name="human-color"]`，1=你执黑，2=你执白，`self`=自对弈演示；AI 执另一方，黑方永远先行；
+- 单人对局的执子颜色存在 `localStorage` 的 `gomoku-color`；对局/演示模式存在 `gomoku-mode`（`human` / `self`），切回单人对局时恢复原执子颜色；
 - `HUMAN` / `AI` 是动态变量，`currentPlayer` 初始为 1（黑方）；
 - AI 执黑时首手直接下天元，并在 `resetGame` / 初始化后调度 `aiMove`；
+- 自对弈中 `isAiPlayer(player)` 对黑白双方都为真，`makeMove` 后连续调度 `aiMove`；点击与悬停只走 `isHumanPlayer`；
 - **所有颜色相关 UI 用实际颜色判断**（`player === 1` 才是黑），不要用 `HUMAN`/`AI` 判断黑白；
-- `evaluateInParallel` 排序：白方 AI 降序，黑方 AI 升序（`searchRootMove` 是白方视角）；
+- `evaluateInParallel` 排序：白方降序，黑方升序（`searchRootMove` 是白方视角）；
 - 悔棋后按剩余手数奇偶恢复轮到谁：`history.length` 偶数轮黑、奇数轮白。
 
 ### 5.3 进攻强度滑杆
 
-- UI：`#attackIntensity`，范围 0–100，步长 5；
+- 单人对局 UI：`#attackIntensity`，范围 0–100，步长 5；
+- 自对弈 UI：`#blackIntensity` / `#whiteIntensity`，同样 0–100、步长 5，按当前行棋方取 `intensityFor(player)`；
 - 0% = 原均衡；100% = 原进攻；
 - 插值参数见 README 的“棋风”表；
-- 值存在 `localStorage` 的 `gomoku-attack`；
+- 单人对局值存在 `localStorage` 的 `gomoku-attack`，自对弈两色分别存在 `gomoku-selfplay-black` / `gomoku-selfplay-white`；
 - 旧 `gomoku-style=attack` 会迁移为 100%；
+- 自对弈滑杆在思考期间仍可调，新值从该方下一手生效；
 - 滑杆只改静态聚合、根着排序、VCT 进攻预算；**不改**立即成五/挡五、强制候选、VCF/VCT 防守。
 
 ### 5.4 Worker 池
@@ -298,7 +302,17 @@ profile 字段：`name / engine / depth / roots / vcf / vct / intensity`，文�
 
 弱黑对照：`--b "name=weak,depth=6,roots=8,vct=0"`。历史结果：进攻 100% 白 vs 弱黑 6–0；均衡白 vs 同一弱黑 1–3–2；进攻白 vs 均衡黑 3–3（都是小样本）。
 
-`node --test` 会递归执行 `test/` 下的所有 `.mjs`，所以模板用 `NODE_TEST_CONTEXT` / `execArgv` 检测测试 runner，在测试环境中不执行 `main()`；它会被当作一个空测试文件加载，但不会跑对局，回归计数仍以 14 条引擎 + 31 条战术为准。它是手动评估工具，不是回归测试。
+`node --test` 会递归执行 `test/` 下的所有 `.mjs`，所以模板用 `NODE_TEST_CONTEXT` / `execArgv` 检测测试 runner，在测试环境中不执行 `main()`；它会被当作一个空测试文件加载，但不会跑对局，回归计数仍以 15 条引擎 + 31 条战术为准。它是手动评估工具，不是回归测试。
+
+### 换色对称性验证
+
+叶子评估必须换色反对称，`test/gomoku-engine.test.mjs` 里有一条常驻回归（15 条中的第 8 条）。手工复验的方法：
+
+- 取一个局面 `B`，构造换色局面 `B'`（`B'[r][c] = B[r][c] === 0 ? 0 : 3 - B[r][c]`）；
+- 对同一着法，`searchRootMove(B, move, 2, d).score` 应等于 `-searchRootMove(B', move, 1, d).score`；
+- `evaluateBoard(B, 2)` 应等于 `-evaluateBoard(B', 2)`。
+
+注意要先把 TT 清掉再比较冷分（`setAttackIntensity(0.37)` 后再 `setAttackIntensity(0)`），否则热 TT 会掩盖失配。曾经 `own - 1.1 * threat` 就是在这里被抓住的：depth 1 就有 24/48 对根着分不满足反对称。
 
 ### DOM 级验证
 
@@ -341,7 +355,7 @@ profile 字段：`name / engine / depth / roots / vcf / vct / intensity`，文�
 提交前（如果用户要求提交）：
 
 - [ ] 战术 31/31（至少 0% 和 100% 两档）
-- [ ] 引擎测试 14/14
+- [ ] 引擎测试 15/15
 - [ ] `node --check` 三个 JS 文件
 - [ ] `git diff --check`
 - [ ] 用户可见行为变化同步到 README

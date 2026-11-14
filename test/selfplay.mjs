@@ -120,7 +120,7 @@ function chooseMove(profile, board, player, random) {
     const opponent = player === 1 ? 2 : 1;
 
     const opening = engine.findOpeningMove(board, player);
-    if (opening) return opening;
+    if (opening) return { move: opening, source: 'book' };
     const win = engine.findImmediateMove(board, player);
     if (win) return { move: win, source: 'win' };
     const block = engine.findImmediateMove(board, opponent);

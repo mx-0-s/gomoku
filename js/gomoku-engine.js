@@ -105,13 +105,11 @@
     const STYLE_PRESETS = {
         balanced: {
             moveOpponent: 1.2,
-            boardOpponent: 1.1,
             levelFour: 10_000,
             vctNodes: VCT_MAX_NODES
         },
         attack: {
             moveOpponent: 1.0,
-            boardOpponent: 0.9,
             levelFour: 14_000,
             vctNodes: 1800
         }
@@ -125,7 +123,6 @@
         activeIntensity = intensity;
         activeStyle = {
             moveOpponent: 1.2 - 0.2 * intensity,
-            boardOpponent: 1.1 - 0.2 * intensity,
             levelFour: 10_000 + 4_000 * intensity,
             vctNodes: Math.round(1_200 + 600 * intensity)
         };
@@ -668,8 +665,17 @@
     // Static evaluation from `player`'s point of view. Reading only the single strongest
     // move made two separate open threes look exactly like one, so the top three threats are
     // combined with decaying weights: one threat keeps its full value, a second adds half,
-    // a third a quarter. The opponent's total is weighted slightly higher because it forces
-    // a reply. The result is clamped well below WIN_SCORE so a terminal win always wins.
+    // a third a quarter. The result is clamped well below WIN_SCORE so a terminal win always
+    // wins.
+    //
+    // The two sides must be exact negatives under a colour swap: E(swap(board), White) has to
+    // equal -E(board, White). `searchRootMove` always returns White's value and Black plays by
+    // minimising that same number, so a weight other than 1.0 makes the utility
+    // colour-asymmetric — White would defend at 1.1 while Black, minimising it, attacks at 1.1
+    // and defends at 1.0, so the two colours stop being the same player at the same setting.
+    // (Minimax itself is consistent either way; the defect is that the two colours no longer
+    // mirror each other.) The defensive bias therefore lives only in `moveOpponent`, which
+    // each side applies to its own candidate ordering and is equal for both colours.
     function evaluateBoard(board, player) {
         const opponent = player === 1 ? 2 : 1;
         let ownBest = 0;
@@ -719,7 +725,7 @@
             + levelFourWeight * Math.min(ownLevelFour, 8);
         const threat = opponentBest + 0.2 * opponentSecond + 0.05 * opponentThird
             + levelFourWeight * Math.min(opponentLevelFour, 8);
-        const raw = own - activeStyle.boardOpponent * threat;
+        const raw = own - threat;
         const cap = WIN_SCORE / 2;
         return Math.max(-cap, Math.min(cap, raw));
     }
